@@ -3,6 +3,7 @@
 const STORAGE_KEY = "pf2e-base-manager-v1";
 const SESSION_KEY = "pf2e-base-manager-session-v1";
 const STATE_API_URL = "/api/state";
+const SEED_STATE_URL = "./campaign-state.json";
 const AON_BASE_URL = "https://2e.aonprd.com";
 const CALENDAR_MONTHS = ["Verão", "Outono", "Caos", "Inverno", "Primavera"];
 const DAYS_PER_MONTH = 72;
@@ -374,7 +375,7 @@ function freshState() {
     users: [
       {
         id: masterUserId,
-        name: "Mestre",
+        name: "Gabriel Vieira",
         role: userRoles.admin,
         pin: "310898",
         createdAt: Date.now()
@@ -492,10 +493,10 @@ function freshState() {
       legionNotes: "A chama do grupo ainda está sendo escrita. Guardem promessas, rastros e pactos que merecem voltar à mesa.",
       heroes: [
         {
-          id: masterHeroId,
-          ownerUserId: masterUserId,
-          ownerName: "Mestre",
-          characterName: "Iril Vantor",
+        id: masterHeroId,
+        ownerUserId: masterUserId,
+        ownerName: "Gabriel Vieira",
+        characterName: "Iril Vantor",
           image: "",
           updatedAt: Date.now(),
           goals: [
@@ -567,8 +568,47 @@ function freshState() {
   };
 }
 
+async function loadSeedState() {
+  try {
+    const response = await fetch(SEED_STATE_URL, { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    const text = await response.text();
+    if (!text.trim()) {
+      return null;
+    }
+    return normalizeState(JSON.parse(text));
+  } catch (error) {
+    return null;
+  }
+}
+
+function hasCanonicalAdmin(users) {
+  return Array.isArray(users)
+    && users.some((user) => user.role === userRoles.admin
+      && normalizeAccessName(user.name) === normalizeAccessName("Gabriel Vieira")
+      && String(user.pin || "") === "310898");
+}
+
+function shouldBootstrapFromSeed(remoteState, seedState) {
+  if (!seedState || !hasMeaningfulState(seedState)) {
+    return false;
+  }
+  if (!remoteState || !hasMeaningfulState(remoteState)) {
+    return true;
+  }
+  const remoteRevision = Number(remoteState.revision) || 0;
+  const seedRevision = Number(seedState.revision) || 0;
+  if (seedRevision > remoteRevision) {
+    return true;
+  }
+  return !hasCanonicalAdmin(remoteState.users);
+}
+
 async function loadSharedState() {
   const fallback = loadLocalState();
+  const seed = await loadSeedState();
   try {
     const response = await fetch(STATE_API_URL, { cache: "no-store" });
     if (response.ok) {
@@ -576,6 +616,12 @@ async function loadSharedState() {
       if (text.trim()) {
         const remote = normalizeState(JSON.parse(text));
         if (hasMeaningfulState(remote)) {
+          if (shouldBootstrapFromSeed(remote, seed)) {
+            const canonical = seed || fallback;
+            saveLocalState(canonical);
+            void saveState(canonical);
+            return canonical;
+          }
           saveLocalState(remote);
           return remote;
         }
@@ -583,6 +629,12 @@ async function loadSharedState() {
     }
   } catch (error) {
     // fallback below
+  }
+
+  if (seed && hasMeaningfulState(seed)) {
+    saveLocalState(seed);
+    void saveState(seed);
+    return seed;
   }
 
   if (hasMeaningfulState(fallback)) {
@@ -649,7 +701,7 @@ function normalizeUser(user) {
   const role = user?.role === userRoles.admin ? userRoles.admin : userRoles.player;
   return {
     id: user?.id || createId("user"),
-    name: user?.name?.trim() || (role === userRoles.admin ? "Mestre" : "Jogador"),
+    name: user?.name?.trim() || (role === userRoles.admin ? "Gabriel Vieira" : "Jogador"),
     role,
     pin: String(role === userRoles.admin ? (user?.pin || "310898") : (user?.pin || "")),
     createdAt: Number(user?.createdAt) || Date.now()
