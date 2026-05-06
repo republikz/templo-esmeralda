@@ -2,8 +2,8 @@
     "version":  1,
     "currentDay":  30,
     "startingBalanceCopper":  20000,
-    "revision":  128,
-    "updatedAt":  1778088667730,
+    "revision":  130,
+    "updatedAt":  1778091100991,
     "users":  [
                   {
                       "id":  "user-mou51f0g-qdpfwhxi",
@@ -18,6 +18,13 @@
                       "role":  "player",
                       "pin":  "1234",
                       "createdAt":  1778077476853
+                  },
+                  {
+                      "id":  "user-moudj6oo-oea2uq6g",
+                      "name":  "Nayumi",
+                      "role":  "player",
+                      "pin":  "020915",
+                      "createdAt":  1778091101592
                   }
               ],
     "rooms":  [
