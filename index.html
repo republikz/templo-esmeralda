@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Templo Esmeralda | Base Pathfinder 2e</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@400;500;700;800&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=8">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegação principal">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">🏔️</div>
+          <div>
+            <p>Templo Esmeralda</p>
+            <span>Base Pathfinder 2e</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-button active" type="button" data-view-target="dashboard">
+            <span aria-hidden="true">⌂</span>
+            Painel
+          </button>
+          <button class="nav-button" type="button" data-view-target="rooms">
+            <span aria-hidden="true">▣</span>
+            Salas
+          </button>
+          <button class="nav-button" type="button" data-view-target="npcs">
+            <span aria-hidden="true">◉</span>
+            NPCs
+          </button>
+          <button class="nav-button" type="button" data-view-target="finance">
+            <span aria-hidden="true">¢</span>
+            Finanças
+          </button>
+          <button class="nav-button" type="button" data-view-target="calendar">
+            <span aria-hidden="true">🗓</span>
+            Calendário
+          </button>
+          <button class="nav-button" type="button" data-view-target="campfire">
+            <span aria-hidden="true">🔥</span>
+            Fogueira
+          </button>
+          <button class="nav-button" type="button" data-view-target="market">
+            <span aria-hidden="true">✦</span>
+            Mercado
+          </button>
+          <button class="nav-button" type="button" data-view-target="settings" data-admin-only="true">
+            <span aria-hidden="true">⚙</span>
+            Dados
+          </button>
+        </nav>
+
+        <div class="side-status">
+          <div>
+            <span>Data no RPG</span>
+            <strong id="sidebarDay">1</strong>
+          </div>
+          <div>
+            <span>Saldo</span>
+            <strong id="sidebarBalance">0 gp</strong>
+          </div>
+          <div>
+            <span>Próximo mercado</span>
+            <strong id="sidebarMarket">Dia 7</strong>
+          </div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Gerenciamento da Base</p>
+            <h1 id="viewTitle">Painel</h1>
+            <div class="profile-line" aria-live="polite">
+              <span class="profile-label">Perfil ativo</span>
+              <strong id="activeProfileName">Aguardando acesso</strong>
+              <span class="role-badge player" id="activeRoleBadge">Login necessário</span>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <form class="day-control calendar-date-control" id="dayForm" hidden>
+              <label>
+                Data atual no RPG
+                <span class="date-fields">
+                  <input id="currentDayInput" name="currentDayInput" type="number" min="1" max="72" step="1" value="1" aria-label="Dia do mês">
+                  <select id="currentMonthInput" name="currentMonthInput" aria-label="Mês do calendário"></select>
+                </span>
+              </label>
+              <button class="button primary" type="submit">Atualizar</button>
+            </form>
+          </div>
+        </header>
+
+        <div class="notice" id="catalogNotice" hidden></div>
+        <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+        <section class="view active" id="view-dashboard">
+          <div class="metric-grid">
+            <article class="metric">
+              <span>Salas especiais</span>
+              <strong id="metricRooms">0</strong>
+            </article>
+            <article class="metric">
+              <span>NPCs na base</span>
+              <strong id="metricNpcs">0</strong>
+            </article>
+            <article class="metric">
+              <span>Pendências</span>
+              <strong id="metricDue">0 gp</strong>
+            </article>
+            <article class="metric">
+              <span>Itens no mercado</span>
+              <strong id="metricStock">0</strong>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="panel dashboard-calendar-panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Calendário do mês</p>
+                  <h2 id="dashboardCalendarTitle">Calendário atual</h2>
+                </div>
+                <span class="chip" id="dashboardCalendarCount">0 registros</span>
+              </div>
+              <div class="calendar-mini" id="dashboardCalendarGrid"></div>
+            </section>
+
+            <section class="panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Ciclo de 7 dias</p>
+                  <h2>Mercado atual</h2>
+                </div>
+                <button class="button subtle" id="refreshMarketDashboard" type="button">Gerar estoque</button>
+              </div>
+              <div class="compact-stock" id="dashboardMarketList"></div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Visão geral</p>
+                <h2>Atividade recente</h2>
+              </div>
+            </div>
+            <div class="ledger-preview" id="recentLedger"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-rooms">
+          <div class="two-column">
+            <section class="panel form-panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">ADM</p>
+                  <h2 id="roomFormTitle">Nova sala especial</h2>
+                </div>
+                <button class="button primary" type="button" id="toggleRoomComposer">Adicionar</button>
+              </div>
+              <div class="composer-body" id="roomComposerBody" hidden>
+              <form id="roomForm" class="stacked-form">
+                <input type="hidden" id="roomId">
+                <label>
+                  Nome
+                  <input id="roomName" required maxlength="80" autocomplete="off">
+                </label>
+                <label>
+                  Imagem da sala
+                  <input id="roomImageUpload" type="file" accept="image/*">
+                  <input id="roomImageData" type="hidden">
+                </label>
+                <div class="image-preview" id="roomImagePreview"></div>
+                <div class="form-row">
+                  <label>
+                    Tipo
+                    <input id="roomType" maxlength="50" placeholder="Taverna, oficina, capela...">
+                  </label>
+                  <label>
+                    Estado
+                    <select id="roomStatus">
+                      <option value="Ativa">Ativa</option>
+                      <option value="Em construção">Em construção</option>
+                      <option value="Danificada">Danificada</option>
+                      <option value="Inativa">Inativa</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Bônus e efeitos
+                  <textarea id="roomBonus" rows="4"></textarea>
+                </label>
+                <label>
+                  Utilização
+                  <textarea id="roomUsage" rows="4"></textarea>
+                </label>
+                <label>
+                  Descrição
+                  <textarea id="roomDescription" rows="5"></textarea>
+                </label>
+                <div class="button-row">
+                  <button class="button primary" type="submit">Salvar sala</button>
+                  <button class="button ghost" id="clearRoomImage" type="button">Remover imagem</button>
+                  <button class="button ghost" id="cancelRoomEdit" type="button">Limpar</button>
+                </div>
+              </form>
+              </div>
+            </section>
+
+            <section class="content-column">
+              <div class="toolbar">
+                <input id="roomSearch" type="search" placeholder="Buscar salas">
+                <select id="roomFilter">
+                  <option value="all">Todos os estados</option>
+                  <option value="Ativa">Ativas</option>
+                  <option value="Em construção">Em construção</option>
+                  <option value="Danificada">Danificadas</option>
+                  <option value="Inativa">Inativas</option>
+                </select>
+              </div>
+              <div class="room-grid" id="roomList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-npcs">
+          <div class="two-column wide-left">
+            <section class="panel form-panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">ADM</p>
+                  <h2 id="npcFormTitle">Novo NPC</h2>
+                </div>
+                <button class="button primary" type="button" id="toggleNpcComposer">Adicionar</button>
+              </div>
+              <div class="composer-body" id="npcComposerBody" hidden>
+              <form id="npcForm" class="stacked-form">
+                <input type="hidden" id="npcId">
+                <label>
+                  Nome
+                  <input id="npcName" required maxlength="80" autocomplete="off">
+                </label>
+                <label>
+                  Imagem do NPC
+                  <input id="npcImageUpload" type="file" accept="image/*">
+                  <input id="npcImage" type="hidden">
+                </label>
+                <div class="image-preview" id="npcImagePreview"></div>
+                <div class="form-row">
+                  <label>
+                    Função
+                    <input id="npcRole" maxlength="50" placeholder="Estalajadeiro, guarda, artesã...">
+                  </label>
+                  <label>
+                    Ordenação
+                    <input id="npcTags" maxlength="80" placeholder="aliado, comércio, cura">
+                  </label>
+                </div>
+                <label>
+                  Resumo breve
+                  <input id="npcSummary" maxlength="140">
+                </label>
+                <label>
+                  Descrição
+                  <textarea id="npcDescription" rows="4"></textarea>
+                </label>
+                <div class="form-row">
+                  <label>
+                    Impacto mensal
+                    <select id="npcFinanceType">
+                      <option value="none">Nenhum</option>
+                      <option value="income">Receita</option>
+                      <option value="expense">Despesa</option>
+                    </select>
+                  </label>
+                  <label>
+                    Valor em gp
+                    <input id="npcFinanceAmount" type="number" min="0" step="0.1" value="0">
+                  </label>
+                </div>
+                <div class="button-row">
+                  <button class="button primary" type="submit">Salvar NPC</button>
+                  <button class="button ghost" id="clearNpcImage" type="button">Remover imagem</button>
+                  <button class="button ghost" id="cancelNpcEdit" type="button">Limpar</button>
+                </div>
+              </form>
+              </div>
+            </section>
+
+            <section class="content-column">
+              <div class="toolbar split">
+                <input id="npcSearch" type="search" placeholder="Buscar NPCs">
+                <select id="npcRoleFilter">
+                  <option value="all">Todas as funções</option>
+                </select>
+                <select id="npcSort">
+                  <option value="name">Nome</option>
+                  <option value="role">Função</option>
+                  <option value="impact">Impacto financeiro</option>
+                  <option value="recent">Atualização</option>
+                </select>
+              </div>
+              <div class="npc-grid" id="npcList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-finance">
+          <div class="finance-summary">
+            <article class="metric large">
+              <div class="metric-head">
+                <span>Saldo atual</span>
+                <button class="button subtle small" id="toggleFinanceBalanceForm" type="button" aria-expanded="false">Editar</button>
+              </div>
+              <strong id="financeBalance">0 gp</strong>
+            </article>
+            <article class="metric large">
+              <span>Receitas pendentes</span>
+              <strong id="financeIncomeDue">0 gp</strong>
+            </article>
+            <article class="metric large">
+              <span>Despesas pendentes</span>
+              <strong id="financeExpenseDue">0 gp</strong>
+            </article>
+          </div>
+
+          <section class="panel finance-balance-panel" id="financeBalancePanel" hidden>
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Saldo compartilhado</p>
+                <h2>Saldo atual</h2>
+              </div>
+            </div>
+            <form id="financeBalanceForm" class="inline-form">
+              <input id="financeBalanceInput" type="number" min="0" step="0.1" placeholder="gp">
+              <button class="button primary" type="submit">Salvar saldo</button>
+              <button class="button ghost" id="cancelFinanceBalance" type="button">Cancelar</button>
+            </form>
+          </section>
+
+          <div class="two-column">
+            <section class="panel form-panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Ciclos recorrentes</p>
+                  <h2 id="sourceFormTitle">Nova fonte</h2>
+                </div>
+                <button class="button primary" type="button" id="toggleSourceComposer">Adicionar</button>
+              </div>
+              <div class="composer-body" id="sourceComposerBody" hidden>
+              <form id="sourceForm" class="stacked-form">
+                <input type="hidden" id="sourceId">
+                <label>
+                  Nome
+                  <input id="sourceName" required maxlength="90">
+                </label>
+                <div class="form-row">
+                  <label>
+                    Origem
+                    <select id="sourceKind">
+                      <option value="building">Construção</option>
+                      <option value="npc">NPC</option>
+                      <option value="room">Sala especial</option>
+                      <option value="tavern">Taverna</option>
+                      <option value="other">Outro</option>
+                    </select>
+                  </label>
+                  <label>
+                    Tipo
+                    <select id="sourceType">
+                      <option value="income">Receita</option>
+                      <option value="expense">Despesa</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>
+                    Valor em gp
+                    <input id="sourceAmount" type="number" min="0" step="0.1" required>
+                  </label>
+                  <label>
+                    Recorrência em dias
+                    <input id="sourceInterval" type="number" min="1" step="1" value="30">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>
+                    Data inicial da recorrência
+                    <span class="date-fields">
+                      <input id="sourceStartDay" type="number" min="1" max="72" step="1" value="1" aria-label="Dia inicial">
+                      <select id="sourceStartMonth" aria-label="Mês inicial"></select>
+                    </span>
+                  </label>
+                  <label>
+                    Última data processada
+                    <span class="date-fields">
+                      <input id="sourceLastDay" type="number" min="1" max="72" step="1" value="1" aria-label="Dia processado">
+                      <select id="sourceLastMonth" aria-label="Mês processado"></select>
+                    </span>
+                  </label>
+                </div>
+                <label>
+                  Observação
+                  <textarea id="sourceNote" rows="3"></textarea>
+                </label>
+                <label class="check-line">
+                  <input id="sourceActive" type="checkbox" checked>
+                  Ativa
+                </label>
+                <div class="button-row">
+                  <button class="button primary" type="submit">Salvar fonte</button>
+                  <button class="button ghost" id="cancelSourceEdit" type="button">Limpar</button>
+                </div>
+              </form>
+              </div>
+            </section>
+
+            <section class="content-column">
+              <div class="section-header floating lower">
+                <div>
+                  <p class="eyebrow">Fontes</p>
+                  <h2>Construções, salas e NPCs</h2>
+                </div>
+              </div>
+              <div class="source-list" id="sourceList"></div>
+            </section>
+          </div>
+
+          <section class="panel ledger-panel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Livro-caixa</p>
+                <h2>Lançamentos</h2>
+              </div>
+            </div>
+            <form id="ledgerForm" class="inline-form">
+              <input id="ledgerName" placeholder="Descrição" required>
+              <select id="ledgerType">
+                <option value="income">Receita</option>
+                <option value="expense">Despesa</option>
+              </select>
+              <input id="ledgerAmount" type="number" min="0" step="0.1" placeholder="gp" required>
+              <span class="date-fields inline-date">
+                <input id="ledgerDay" type="number" min="1" max="72" step="1" placeholder="Dia" aria-label="Dia do lançamento">
+                <select id="ledgerMonth" aria-label="Mês do lançamento"></select>
+              </span>
+              <button class="button subtle" type="submit">Adicionar</button>
+            </form>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Dia</th>
+                    <th>Descrição</th>
+                    <th>Tipo</th>
+                    <th>Valor</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="ledgerTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="view-calendar">
+          <div class="calendar-layout">
+            <section class="panel form-panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Agenda da campanha</p>
+                  <h2>Novo evento</h2>
+                </div>
+                <button class="button primary" type="button" id="toggleEventComposer">Adicionar</button>
+              </div>
+              <div class="composer-body" id="eventComposerBody" hidden>
+              <form id="eventForm" class="stacked-form">
+                <input type="hidden" id="eventId">
+                <label>
+                  Título
+                  <input id="eventTitle" required maxlength="90" autocomplete="off">
+                </label>
+                <div class="form-row">
+                  <label>
+                    Tipo
+                    <select id="eventType">
+                      <option value="event">Evento</option>
+                      <option value="session">Sessão</option>
+                      <option value="quest">Missão</option>
+                      <option value="warning">Presságio</option>
+                    </select>
+                  </label>
+                  <label>
+                    Data
+                    <span class="date-fields">
+                      <input id="eventDay" type="number" min="1" max="72" step="1" value="1" aria-label="Dia do evento">
+                      <select id="eventMonth" aria-label="Mês do evento"></select>
+                    </span>
+                  </label>
+                </div>
+                <label>
+                  Detalhes
+                  <textarea id="eventDescription" rows="4"></textarea>
+                </label>
+                <div class="button-row">
+                  <button class="button primary" type="submit">Salvar evento</button>
+                  <button class="button ghost" id="cancelEventEdit" type="button">Limpar</button>
+                </div>
+              </form>
+              </div>
+            </section>
+
+            <section class="content-column">
+              <section class="panel calendar-controls">
+                <div class="section-header">
+                  <div>
+                    <p class="eyebrow">Ano corrente</p>
+                    <h2 id="calendarYearTitle">Calendário</h2>
+                  </div>
+                  <div class="button-row compact">
+                    <label class="check-line auto-process">
+                      <input id="autoProcessRecurring" type="checkbox">
+                      Processar automaticamente
+                    </label>
+                    <button class="button primary" id="processRecurringCalendar" type="button">Processar recorrentes</button>
+                  </div>
+                </div>
+                <div class="calendar-summary" id="calendarSummary"></div>
+              </section>
+              <div class="calendar-months" id="calendarMonths"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-campfire">
+          <section class="panel campfire-intro">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Mesa viva</p>
+                <h2>Fogueira dos Heróis</h2>
+              </div>
+            </div>
+            <p class="muted">
+              Traga o nome do personagem, declare o que ele persegue e deixe a mesa responder.
+              Objetivos secretos ficam guardados para o dono e para o Mestre, enquanto a galeria mostra o que pode ser dito ao redor da fogueira.
+            </p>
+            <p class="campfire-note-summary" id="campfireNoteSummary"></p>
+          </section>
+
+          <section class="panel form-panel campfire-editor">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Seu personagem</p>
+                <h2 id="campfireFormTitle">Cadastrar personagem</h2>
+              </div>
+              <button class="button primary" type="button" id="toggleCampfireComposer">Adicionar</button>
+            </div>
+            <div class="composer-body" id="campfireComposerBody" hidden>
+              <form id="campfireHeroForm" class="stacked-form">
+                <input type="hidden" id="campfireHeroId">
+                <label>
+                  Nome do personagem
+                  <input id="campfireCharacterName" maxlength="90" autocomplete="off" placeholder="Ex.: Iril Vantor">
+                </label>
+                <label id="campfireHeroOwnerField">
+                  Vincular a usuário
+                  <select id="campfireHeroOwnerUserId"></select>
+                </label>
+                <label>
+                  Foto do personagem
+                  <input id="campfireHeroImageUpload" type="file" accept="image/*">
+                  <input id="campfireHeroImage" type="hidden">
+                </label>
+                <div class="image-preview" id="campfireHeroImagePreview"></div>
+                <div class="button-row">
+                  <button class="button primary" type="submit">Salvar personagem</button>
+                  <button class="button ghost" id="clearCampfireHeroImage" type="button">Remover imagem</button>
+                  <button class="button ghost" id="cancelCampfireHero" type="button">Limpar</button>
+                </div>
+              </form>
+
+              <section class="campfire-goal-composer">
+                <div class="section-header floating lower">
+                  <div>
+                    <p class="eyebrow">Objetivos</p>
+                    <h3>Adicionar ou alterar</h3>
+                  </div>
+                  <span class="chip warn">Curto, médio e longo prazo</span>
+                </div>
+                <form id="campfireGoalForm" class="stacked-form">
+                  <input type="hidden" id="campfireGoalId">
+                  <div class="form-row">
+                    <label>
+                      Categoria
+                      <select id="campfireGoalCategory">
+                        <option value="short">Curto Prazo</option>
+                        <option value="medium">Médio Prazo</option>
+                        <option value="long">Longo Prazo</option>
+                      </select>
+                    </label>
+                    <label class="check-line">
+                      <input id="campfireGoalSecret" type="checkbox">
+                      É secreto?
+                    </label>
+                  </div>
+                  <label>
+                    Objetivo
+                    <textarea id="campfireGoalText" rows="4" maxlength="220" placeholder="Escreva o objetivo, a motivação ou o próximo passo..."></textarea>
+                  </label>
+                  <div class="button-row">
+                    <button class="button primary" type="submit">Salvar objetivo</button>
+                    <button class="button ghost" id="cancelCampfireGoalEdit" type="button">Cancelar</button>
+                  </div>
+                </form>
+              </section>
+
+              <div class="campfire-board-wrap" id="campfireOwnGoals"></div>
+            </div>
+          </section>
+
+          <section class="panel campfire-gallery-panel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Galeria da mesa</p>
+                <h2>Objetivos visíveis</h2>
+              </div>
+              <span class="chip" id="campfireGalleryCount">0 cards</span>
+            </div>
+            <div class="campfire-gallery" id="campfireGallery"></div>
+          </section>
+
+          <section class="panel campfire-notes">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Minimus Legio</p>
+                <h2>Anotações do grupo</h2>
+              </div>
+            </div>
+            <form id="campfireLegionForm" class="stacked-form">
+              <label>
+                Texto livre
+                <textarea id="campfireLegionNotes" rows="8" spellcheck="true" placeholder="Registre planos, juramentos, sinais, combinações e tudo o que o grupo quiser preservar."></textarea>
+              </label>
+              <div class="button-row">
+                <button class="button primary" type="submit">Salvar anotações</button>
+              </div>
+            </form>
+          </section>
+        </section>
+
+        <section class="view" id="view-market">
+          <section class="panel market-controls" id="marketControls">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Archives of Nethys</p>
+                <h2>Mercadores da base</h2>
+              </div>
+              <div class="button-row compact">
+                <button class="button primary" id="generateMarket" type="button">Gerar estoque</button>
+                <button class="button ghost" id="rerollMarket" type="button">Nova variação</button>
+              </div>
+            </div>
+            <div class="market-status" id="marketStatus"></div>
+            <form id="marketSettingsForm" class="market-settings">
+              <label>
+                Itens permanentes
+                <input id="permanentCount" type="number" min="4" max="60" step="1">
+              </label>
+              <label>
+                Itens consumíveis
+                <input id="consumableCount" type="number" min="4" max="60" step="1">
+              </label>
+              <fieldset>
+                <legend>Raridades</legend>
+                <label><input type="checkbox" name="rarity" value="Common"> Common</label>
+                <label><input type="checkbox" name="rarity" value="Uncommon"> Uncommon</label>
+                <label><input type="checkbox" name="rarity" value="Rare"> Rare</label>
+                <label><input type="checkbox" name="rarity" value="Unique"> Unique</label>
+              </fieldset>
+              <button class="button subtle" type="submit">Salvar ajustes</button>
+            </form>
+          </section>
+
+          <div class="toolbar split">
+            <input id="marketSearch" type="search" placeholder="Buscar itens">
+            <select id="marketRarityFilter">
+              <option value="all">Todas as raridades</option>
+              <option value="Common">Common</option>
+              <option value="Uncommon">Uncommon</option>
+              <option value="Rare">Rare</option>
+              <option value="Unique">Unique</option>
+            </select>
+            <select id="marketCategoryFilter">
+              <option value="all">Todas as categorias</option>
+            </select>
+            <select id="marketSort">
+              <option value="level">Nível</option>
+              <option value="name">Ordem alfabética</option>
+              <option value="price">Preço</option>
+            </select>
+          </div>
+          <div class="market-sections">
+            <section class="panel market-section">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Mercado</p>
+                  <h2>Itens permanentes</h2>
+                </div>
+                <span class="chip premium" id="permanentCountLabel"></span>
+              </div>
+              <div class="market-grid" id="marketPermanentList"></div>
+            </section>
+            <section class="panel market-section">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Mercado</p>
+                  <h2>Itens consumíveis</h2>
+                </div>
+                <span class="chip income" id="consumableCountLabel"></span>
+              </div>
+              <div class="market-grid" id="marketConsumableList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings" data-admin-only="true">
+          <div class="two-column">
+            <section class="panel form-panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Base</p>
+                  <h2>Saldo e backup</h2>
+                </div>
+              </div>
+              <form id="settingsForm" class="stacked-form">
+                <label>
+                  Saldo inicial em gp
+                  <input id="startingBalance" type="number" min="0" step="0.1">
+                </label>
+                <button class="button primary" type="submit">Salvar saldo</button>
+              </form>
+              <div class="button-row separated">
+                <button class="button subtle" id="exportData" type="button">Exportar dados</button>
+                <button class="button danger" id="resetData" type="button">Reiniciar app</button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Importação</p>
+                  <h2>JSON da campanha</h2>
+                </div>
+              </div>
+              <form id="importForm" class="stacked-form">
+                <textarea id="importData" rows="14" spellcheck="false"></textarea>
+                <button class="button subtle" type="submit">Importar</button>
+              </form>
+            </section>
+          </div>
+          <section class="panel" id="userManagementPanel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Usuários</p>
+                <h2>Perfis e permissões</h2>
+              </div>
+            </div>
+            <form id="userForm" class="stacked-form">
+              <input type="hidden" id="userId">
+              <div class="form-row">
+                <label>
+                  Nome
+                  <input id="userName" maxlength="80" required>
+                </label>
+                <label>
+                  Perfil
+                  <select id="userRole">
+                    <option value="player">Jogador</option>
+                    <option value="admin">Mestre</option>
+                  </select>
+                </label>
+                <label>
+                  PIN de acesso
+                  <input id="userPin" maxlength="20" placeholder="Opcional">
+                </label>
+              </div>
+              <div class="button-row">
+                <button class="button primary" type="submit">Salvar usuário</button>
+                <button class="button ghost" type="button" id="cancelUserEdit">Limpar</button>
+              </div>
+            </form>
+            <div class="list-stack" id="userList"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div class="auth-overlay" id="authOverlay">
+      <section class="auth-card" aria-labelledby="authTitle">
+        <div class="brand auth-brand">
+          <div class="brand-mark" aria-hidden="true">🏔</div>
+          <div>
+            <p>Templo Esmeralda</p>
+            <span>Base Pathfinder 2e</span>
+          </div>
+        </div>
+        <p class="eyebrow">Acesso da mesa</p>
+        <h2 id="authTitle">Entre com seu nome e PIN</h2>
+        <p class="auth-copy">Se o perfil existir, você entra nele. Se não existir, ele é criado como Jogador.</p>
+        <form id="authForm" class="stacked-form">
+          <label>
+            Nome
+            <input id="accessName" maxlength="80" autocomplete="name" required>
+          </label>
+          <label>
+            PIN de acesso
+            <input id="accessPin" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="20" required>
+          </label>
+          <button class="button primary" type="submit">Entrar</button>
+        </form>
+      </section>
+    </div>
+
+    <script src="app.js?v=4" defer></script>
+  </body>
+</html>
