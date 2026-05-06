@@ -1,10 +1,10 @@
-﻿"use strict";
+"use strict";
 
 const STORAGE_KEY = "pf2e-base-manager-v1";
 const SESSION_KEY = "pf2e-base-manager-session-v1";
 const STATE_API_URL = "/api/state";
 const AON_BASE_URL = "https://2e.aonprd.com";
-const CALENDAR_MONTHS = ["VerÃ£o", "Outono", "Caos", "Inverno", "Primavera"];
+const CALENDAR_MONTHS = ["Verão", "Outono", "Caos", "Inverno", "Primavera"];
 const DAYS_PER_MONTH = 72;
 const DAYS_PER_YEAR = CALENDAR_MONTHS.length * DAYS_PER_MONTH;
 
@@ -12,16 +12,16 @@ const viewTitles = {
   dashboard: "Painel",
   rooms: "Salas especiais",
   npcs: "NPCs da base",
-  finance: "FinanÃ§as da base",
-  calendar: "CalendÃ¡rio",
-  campfire: "Fogueira dos HerÃ³is",
+  finance: "Finanças da base",
+  calendar: "Calendário",
+  campfire: "Fogueira dos Heróis",
   market: "Mercado dos mercadores",
   settings: "Dados da campanha"
 };
 
 const campfireGoalCategories = {
   short: "Curto Prazo",
-  medium: "MÃ©dio Prazo",
+  medium: "Médio Prazo",
   long: "Longo Prazo"
 };
 
@@ -230,7 +230,7 @@ function bindEvents() {
     }
     saveState();
     render();
-    showToast(state.autoProcessRecurring ? "Processamento automÃ¡tico ativado." : "Processamento automÃ¡tico desativado.");
+    showToast(state.autoProcessRecurring ? "Processamento automático ativado." : "Processamento automático desativado.");
   });
 
   $("#eventForm").addEventListener("submit", saveCalendarEvent);
@@ -262,7 +262,7 @@ function bindEvents() {
     if (generateMarketStock({ reroll: true })) {
       saveState();
       render();
-      showToast("Nova variaÃ§Ã£o de estoque gerada.");
+      showToast("Nova variação de estoque gerada.");
     }
   });
   $("#marketSettingsForm").addEventListener("submit", saveMarketSettings);
@@ -352,7 +352,7 @@ async function loadCatalog() {
   } catch (error) {
     catalogLoaded = false;
     notice.hidden = false;
-    notice.textContent = "CatÃ¡logo de itens nÃ£o encontrado. Coloque table-data.json junto ao index.html e abra pelo servidor local.";
+    notice.textContent = "Catálogo de itens não encontrado. Coloque table-data.json junto ao index.html e abra pelo servidor local.";
     renderMarket();
   }
 }
@@ -383,13 +383,13 @@ function freshState() {
     rooms: [
       {
         id: roomTavernId,
-        name: "Taverna do PÃ³rtico",
+        name: "Taverna do Pórtico",
         type: "Taverna",
         status: "Ativa",
         image: "",
         bonus: "Receita recorrente a cada 30 dias. Pode servir como ponto de rumores, contratos e contatos locais.",
-        usage: "Usada para hospedagem, refeiÃ§Ãµes, pequenos encontros e negociaÃ§Ãµes discretas.",
-        description: "Um salÃ£o de pedra escura com balcÃ£o de madeira polida, sempre aquecido por braseiros baixos.",
+        usage: "Usada para hospedagem, refeições, pequenos encontros e negociações discretas.",
+        description: "Um salão de pedra escura com balcão de madeira polida, sempre aquecido por braseiros baixos.",
         updatedAt: Date.now()
       },
       {
@@ -398,8 +398,8 @@ function freshState() {
         type: "Oficina",
         status: "Ativa",
         image: "",
-        bonus: "Facilita reparos, identificaÃ§Ã£o de itens mÃ¡gicos e preparaÃ§Ã£o de projetos de criaÃ§Ã£o.",
-        usage: "Reservada para artesÃ£os, magos aliados e manutenÃ§Ã£o de equipamentos incomuns.",
+        bonus: "Facilita reparos, identificação de itens mágicos e preparação de projetos de criação.",
+        usage: "Reservada para artesãos, magos aliados e manutenção de equipamentos incomuns.",
         description: "Bancadas estreitas, cristais de foco, ferramentas gravadas e um cofre para componentes raros.",
         updatedAt: Date.now()
       },
@@ -407,11 +407,11 @@ function freshState() {
         id: createId("room"),
         name: "Enfermaria da Guarda",
         type: "Suporte",
-        status: "Em construÃ§Ã£o",
+        status: "Em construção",
         image: "",
-        bonus: "Quando concluÃ­da, pode reduzir custos narrativos de recuperaÃ§Ã£o e manter suprimentos mÃ©dicos.",
-        usage: "Tratamento de feridos, repouso supervisionado e armazenamento de antÃ­dotos.",
-        description: "Uma ala limpa e fria, com leitos simples e armÃ¡rios ainda vazios.",
+        bonus: "Quando concluída, pode reduzir custos narrativos de recuperação e manter suprimentos médicos.",
+        usage: "Tratamento de feridos, repouso supervisionado e armazenamento de antídotos.",
+        description: "Uma ala limpa e fria, com leitos simples e armários ainda vazios.",
         updatedAt: Date.now()
       }
     ],
@@ -421,9 +421,9 @@ function freshState() {
         name: "Maera Vela-Baixa",
         image: "",
         role: "Estalajadeira",
-        tags: "comÃ©rcio, rumores",
-        summary: "Cuida da taverna e conhece quase todo viajante que passa pela regiÃ£o.",
-        description: "Maera Ã© pragmÃ¡tica, cordial e raramente esquece uma dÃ­vida.",
+        tags: "comércio, rumores",
+        summary: "Cuida da taverna e conhece quase todo viajante que passa pela região.",
+        description: "Maera é pragmática, cordial e raramente esquece uma dívida.",
         financeType: "none",
         financeAmountCopper: 0,
         updatedAt: Date.now()
@@ -433,9 +433,9 @@ function freshState() {
         name: "Dorn Calafrio",
         image: "",
         role: "Guarda",
-        tags: "seguranÃ§a, patrulha",
-        summary: "Veterano contratado para organizar turnos de vigia e treinamento bÃ¡sico.",
-        description: "Fala pouco, observa muito e mantÃ©m uma lista de pontos fracos da muralha.",
+        tags: "segurança, patrulha",
+        summary: "Veterano contratado para organizar turnos de vigia e treinamento básico.",
+        description: "Fala pouco, observa muito e mantém uma lista de pontos fracos da muralha.",
         financeType: "expense",
         financeAmountCopper: gpToCopper(8),
         updatedAt: Date.now()
@@ -444,7 +444,7 @@ function freshState() {
     financeSources: [
       {
         id: createId("source"),
-        name: "Taverna do PÃ³rtico",
+        name: "Taverna do Pórtico",
         kind: "tavern",
         type: "income",
         amountCopper: gpToCopper(35),
@@ -452,7 +452,7 @@ function freshState() {
         startDay: 30,
         lastProcessedDay: 0,
         active: true,
-        note: "Receita lÃ­quida estimada da taverna.",
+        note: "Receita líquida estimada da taverna.",
         linkedNpcId: "",
         updatedAt: Date.now()
       },
@@ -466,13 +466,13 @@ function freshState() {
         startDay: 30,
         lastProcessedDay: 0,
         active: true,
-        note: "Veterano contratado para organizar turnos de vigia e treinamento bÃ¡sico.",
+        note: "Veterano contratado para organizar turnos de vigia e treinamento básico.",
         linkedNpcId: dornId,
         updatedAt: Date.now()
       },
       {
         id: createId("source"),
-        name: "ManutenÃ§Ã£o da base",
+        name: "Manutenção da base",
         kind: "building",
         type: "expense",
         amountCopper: gpToCopper(12),
@@ -480,7 +480,7 @@ function freshState() {
         startDay: 30,
         lastProcessedDay: 0,
         active: true,
-        note: "Suprimentos, reparos, salÃ¡rios menores e despesas gerais.",
+        note: "Suprimentos, reparos, salários menores e despesas gerais.",
         linkedNpcId: "",
         updatedAt: Date.now()
       }
@@ -489,7 +489,7 @@ function freshState() {
     events: [],
     autoProcessRecurring: false,
     campfire: {
-      legionNotes: "A chama do grupo ainda estÃ¡ sendo escrita. Guardem promessas, rastros e pactos que merecem voltar Ã  mesa.",
+      legionNotes: "A chama do grupo ainda está sendo escrita. Guardem promessas, rastros e pactos que merecem voltar à mesa.",
       heroes: [
         {
           id: masterHeroId,
@@ -502,7 +502,7 @@ function freshState() {
             {
               id: createId("goal"),
               category: "short",
-              text: "Recuperar o mapa queimado das ruÃ­nas do salÃ£o leste.",
+              text: "Recuperar o mapa queimado das ruínas do salão leste.",
               secret: false,
               createdAt: Date.now(),
               updatedAt: Date.now()
@@ -510,7 +510,7 @@ function freshState() {
             {
               id: createId("goal"),
               category: "medium",
-              text: "Convencer um aliado improvÃ¡vel a jurar lealdade Ã  base.",
+              text: "Convencer um aliado improvável a jurar lealdade à base.",
               secret: true,
               createdAt: Date.now(),
               updatedAt: Date.now()
@@ -518,7 +518,7 @@ function freshState() {
             {
               id: createId("goal"),
               category: "long",
-              text: "Reerguer um cÃ­rculo de proteÃ§Ã£o que faÃ§a a fortaleza respirar magia novamente.",
+              text: "Reerguer um círculo de proteção que faça a fortaleza respirar magia novamente.",
               secret: false,
               createdAt: Date.now(),
               updatedAt: Date.now()
@@ -529,7 +529,7 @@ function freshState() {
           id: guestHeroId,
           ownerUserId: "",
           ownerName: "Arquivo da Fogueira",
-          characterName: "Lira CandelÃ¡ria",
+          characterName: "Lira Candelária",
           image: "",
           updatedAt: Date.now(),
           goals: [
@@ -544,7 +544,7 @@ function freshState() {
             {
               id: createId("goal"),
               category: "medium",
-              text: "Abrir uma rota segura atÃ© o refÃºgio das colinas de vidro.",
+              text: "Abrir uma rota segura até o refúgio das colinas de vidro.",
               secret: false,
               createdAt: Date.now(),
               updatedAt: Date.now()
@@ -706,7 +706,7 @@ function normalizeLedgerEntry(entry) {
   return {
     id: entry.id || createId("ledger"),
     day: Math.max(1, Number.parseInt(entry.day, 10) || 1),
-    name: entry.name || "LanÃ§amento",
+    name: entry.name || "Lançamento",
     type: entry.type === "expense" ? "expense" : "income",
     amountCopper: toSafeCopper(entry.amountCopper, 0),
     sourceId: entry.sourceId || "",
@@ -730,7 +730,7 @@ function normalizeCampfire(campfire, users) {
   const source = campfire && typeof campfire === "object" ? campfire : {};
   const userLookup = new Map((Array.isArray(users) ? users : []).map((user) => [user.id, user]));
   return {
-    legionNotes: String(source.legionNotes || "").trim() || "AnotaÃ§Ãµes livres do Minimus Legio.",
+    legionNotes: String(source.legionNotes || "").trim() || "Anotações livres do Minimus Legio.",
     heroes: Array.isArray(source.heroes) ? source.heroes.map((hero) => normalizeCampfireHero(hero, userLookup)) : []
   };
 }
@@ -1088,7 +1088,7 @@ function renderPermissions() {
     profileName.textContent = isAuthenticated() ? user.name : "Aguardando acesso";
   }
   if (roleBadge) {
-    roleBadge.textContent = isAuthenticated() ? (admin ? "Mestre" : "Jogador") : "Login necessÃ¡rio";
+    roleBadge.textContent = isAuthenticated() ? (admin ? "Mestre" : "Jogador") : "Login necessário";
     roleBadge.className = `role-badge ${!isAuthenticated() ? "player" : admin ? "admin" : "player"}`;
   }
 
@@ -1193,7 +1193,7 @@ function renderDashboard() {
     ? marketPreview.map((item) => `
         <article class="ledger-item">
           <strong>${escapeHtml(item.name)}</strong>
-          <p>NÃ­vel ${item.level} Â· ${escapeHtml(item.rarity)} Â· ${formatCopper(item.merchantCopper)}</p>
+          <p>Nível ${item.level} · ${escapeHtml(item.rarity)} · ${formatCopper(item.merchantCopper)}</p>
         </article>
       `).join("")
     : renderEmpty("Mercado vazio", "Gere o estoque dos mercadores.");
@@ -1206,10 +1206,10 @@ function renderDashboard() {
     ? recent.map((entry) => `
         <article class="ledger-item">
           <strong>${escapeHtml(entry.name)}</strong>
-          <p>${formatCalendarDate(entry.day)} Â· <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> Â· ${formatCopper(entry.amountCopper)}</p>
+          <p>${formatCalendarDate(entry.day)} · <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> · ${formatCopper(entry.amountCopper)}</p>
         </article>
       `).join("")
-    : renderEmpty("Sem lanÃ§amentos", "O livro-caixa ainda nÃ£o recebeu registros.");
+    : renderEmpty("Sem lançamentos", "O livro-caixa ainda não recebeu registros.");
   setHtmlIfChanged($("#recentLedger"), recentHtml);
 }
 
@@ -1231,7 +1231,7 @@ function renderDashboardCalendar() {
     entriesByDay.get(dayOfMonth).push(entry);
   });
 
-  $("#dashboardCalendarTitle").textContent = `${CALENDAR_MONTHS[currentMonth]} â€¢ ciclo ${currentYear}`;
+  $("#dashboardCalendarTitle").textContent = `${CALENDAR_MONTHS[currentMonth]} • ciclo ${currentYear}`;
   $("#dashboardCalendarCount").textContent = `${entries.length} registro${entries.length === 1 ? "" : "s"}`;
 
   const key = getCacheKey(state.revision, currentYear, currentMonth);
@@ -1277,7 +1277,7 @@ function renderDashboardCalendarEntry(entry) {
       : "Despesa";
   const amount = entry.amountCopper ? formatCopper(entry.amountCopper) : "";
   return `
-    <span class="${classes.join(" ")}" title="${escapeAttr(entry.title)} Â· ${escapeAttr(label)}${amount ? ` Â· ${escapeAttr(amount)}` : ""}" aria-label="${escapeAttr(entry.title)}"></span>
+    <span class="${classes.join(" ")}" title="${escapeAttr(entry.title)} · ${escapeAttr(label)}${amount ? ` · ${escapeAttr(amount)}` : ""}" aria-label="${escapeAttr(entry.title)}"></span>
   `;
 }
 
@@ -1387,18 +1387,18 @@ function renderRooms() {
             </div>
             ${isAdmin() ? `
               <div class="card-actions">
-                <button class="icon-button" type="button" title="Editar sala" data-action="edit-room" data-id="${escapeAttr(room.id)}">âœŽ</button>
-                <button class="icon-button" type="button" title="Remover sala" data-action="delete-room" data-id="${escapeAttr(room.id)}">âœ•</button>
+                <button class="icon-button" type="button" title="Editar sala" data-action="edit-room" data-id="${escapeAttr(room.id)}">✎</button>
+                <button class="icon-button" type="button" title="Remover sala" data-action="delete-room" data-id="${escapeAttr(room.id)}">✕</button>
               </div>
             ` : ""}
           </header>
           ${room.image ? `<img class="room-image" src="${escapeAttr(room.image)}" alt="${escapeAttr(room.name)}">` : ""}
-          ${room.bonus ? `<p><strong>BÃ´nus:</strong> ${nl2br(room.bonus)}</p>` : ""}
+          ${room.bonus ? `<p><strong>Bônus:</strong> ${nl2br(room.bonus)}</p>` : ""}
           ${room.usage ? `<p><strong>Uso:</strong> ${nl2br(room.usage)}</p>` : ""}
           ${room.description ? `<p>${nl2br(room.description)}</p>` : ""}
         </article>
       `).join("")
-    : renderEmpty("Nenhuma sala encontrada", "A lista de salas nÃ£o tem resultados para os filtros atuais.");
+    : renderEmpty("Nenhuma sala encontrada", "A lista de salas não tem resultados para os filtros atuais.");
   setHtmlIfChanged($("#roomList"), html);
 }
 
@@ -1513,7 +1513,7 @@ function renderNpcs() {
 
   const html = npcs.length
     ? npcs.map(renderNpcCard).join("")
-    : renderEmpty("Nenhum NPC encontrado", "A lista de NPCs nÃ£o tem resultados para os filtros atuais.");
+    : renderEmpty("Nenhum NPC encontrado", "A lista de NPCs não tem resultados para os filtros atuais.");
   setHtmlIfChanged($("#npcList"), html);
 }
 
@@ -1524,7 +1524,7 @@ function renderNpcRoleOptions() {
   }
   const current = select.value || "all";
   const roles = unique(state.npcs.map((npc) => npc.role).filter(Boolean)).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  select.innerHTML = `<option value="all">Todas as funÃ§Ãµes</option>${roles.map((role) => `<option value="${escapeAttr(role)}">${escapeHtml(role)}</option>`).join("")}`;
+  select.innerHTML = `<option value="all">Todas as funções</option>${roles.map((role) => `<option value="${escapeAttr(role)}">${escapeHtml(role)}</option>`).join("")}`;
   select.value = roles.includes(current) ? current : "all";
 }
 
@@ -1542,7 +1542,7 @@ function renderNpcCard(npc) {
         </div>
         <div class="npc-info">
           <h3>${escapeHtml(npc.name)}</h3>
-          <div class="npc-meta">${escapeHtml(npc.role || "Sem funÃ§Ã£o")}</div>
+          <div class="npc-meta">${escapeHtml(npc.role || "Sem função")}</div>
           ${npc.summary ? `<p>${escapeHtml(npc.summary)}</p>` : ""}
           ${npc.description ? `<p>${escapeHtml(npc.description)}</p>` : ""}
           <div class="chip-row">
@@ -1551,8 +1551,8 @@ function renderNpcCard(npc) {
           </div>
           ${isAdmin() ? `
             <div class="card-actions">
-              <button class="icon-button" type="button" title="Editar NPC" data-action="edit-npc" data-id="${escapeAttr(npc.id)}">âœŽ</button>
-              <button class="icon-button" type="button" title="Remover NPC" data-action="delete-npc" data-id="${escapeAttr(npc.id)}">âœ•</button>
+              <button class="icon-button" type="button" title="Editar NPC" data-action="edit-npc" data-id="${escapeAttr(npc.id)}">✎</button>
+              <button class="icon-button" type="button" title="Remover NPC" data-action="delete-npc" data-id="${escapeAttr(npc.id)}">✕</button>
             </div>
           ` : ""}
         </div>
@@ -1606,7 +1606,7 @@ function renderFinance() {
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
       .map(renderSourceCard)
       .join("")
-    : renderEmpty("Nenhuma fonte", "Adicione construÃ§Ãµes, salas, NPCs ou despesas recorrentes."));
+    : renderEmpty("Nenhuma fonte", "Adicione construções, salas, NPCs ou despesas recorrentes."));
   setHtmlIfChanged($("#sourceList"), sourceHtml);
 
   renderLedgerTable();
@@ -1740,7 +1740,7 @@ function settleAllDue(options = {}) {
   const due = getDueSources();
   if (!due.length) {
     if (!options.silent) {
-      showToast("NÃ£o hÃ¡ pendÃªncias financeiras.");
+      showToast("Não há pendências financeiras.");
     }
     return;
   }
@@ -1766,7 +1766,7 @@ function settleSource(sourceId, options = {}) {
   const due = getDueForSource(source);
   if (!due.cycles) {
     if (!options.silent) {
-      showToast("Esta fonte ainda nÃ£o tem ciclos pendentes.");
+      showToast("Esta fonte ainda não tem ciclos pendentes.");
     }
     return;
   }
@@ -1788,7 +1788,7 @@ function settleSource(sourceId, options = {}) {
   if (!options.silent) {
     saveState();
     render();
-    showToast("PendÃªncia registrada no livro-caixa.");
+    showToast("Pendência registrada no livro-caixa.");
   }
 }
 
@@ -1798,7 +1798,7 @@ function renderDueCard(entry) {
     <article class="due-card">
       <div>
         <strong>${escapeHtml(entry.source.name)}</strong>
-        <span class="muted">${typeLabel} Â· ${entry.cycles} ciclo${entry.cycles > 1 ? "s" : ""} Â· prÃ³ximo: ${formatCalendarDate(entry.nextDueDay)}</span>
+        <span class="muted">${typeLabel} · ${entry.cycles} ciclo${entry.cycles > 1 ? "s" : ""} · próximo: ${formatCalendarDate(entry.nextDueDay)}</span>
       </div>
       <div>
         <div class="amount ${entry.source.type}">${formatCopper(entry.amountCopper)}</div>
@@ -1825,16 +1825,16 @@ function renderSourceCard(source) {
         </div>
         ${isAdmin() ? `
           <div class="card-actions">
-            <button class="icon-button" type="button" title="Editar fonte" data-action="edit-source" data-id="${escapeAttr(source.id)}">âœŽ</button>
-            <button class="icon-button" type="button" title="Remover fonte" data-action="delete-source" data-id="${escapeAttr(source.id)}">Ã—</button>
+            <button class="icon-button" type="button" title="Editar fonte" data-action="edit-source" data-id="${escapeAttr(source.id)}">✎</button>
+            <button class="icon-button" type="button" title="Remover fonte" data-action="delete-source" data-id="${escapeAttr(source.id)}">×</button>
           </div>
         ` : ""}
       </header>
       ${source.note ? `<p>${escapeHtml(source.note)}</p>` : ""}
       <div class="chip-row">
-        <span class="chip">InÃ­cio ${formatCalendarDate(source.startDay || 1)}</span>
-        <span class="chip">Ãšltimo ${source.lastProcessedDay > 0 ? formatCalendarDate(source.lastProcessedDay) : "nenhum"}</span>
-        <span class="chip ${due.cycles ? "warn" : ""}">PrÃ³ximo ${formatCalendarDate(nextDay)}</span>
+        <span class="chip">Início ${formatCalendarDate(source.startDay || 1)}</span>
+        <span class="chip">Último ${source.lastProcessedDay > 0 ? formatCalendarDate(source.lastProcessedDay) : "nenhum"}</span>
+        <span class="chip ${due.cycles ? "warn" : ""}">Próximo ${formatCalendarDate(nextDay)}</span>
       </div>
     </article>
   `;
@@ -1862,7 +1862,7 @@ function saveLedgerEntry(event) {
   $("#ledgerForm").reset();
   setDateInputs("ledgerDay", "ledgerMonth", state.currentDay);
   render();
-  showToast("LanÃ§amento adicionado.");
+  showToast("Lançamento adicionado.");
 }
 
 function renderLedgerTable() {
@@ -1874,13 +1874,13 @@ function renderLedgerTable() {
         <td>${escapeHtml(entry.name)}</td>
         <td class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</td>
         <td>${formatCopper(entry.amountCopper)}</td>
-        <td><button class="icon-button" type="button" title="Remover lanÃ§amento" data-action="delete-ledger" data-id="${escapeAttr(entry.id)}">âœ•</button></td>
+        <td><button class="icon-button" type="button" title="Remover lançamento" data-action="delete-ledger" data-id="${escapeAttr(entry.id)}">✕</button></td>
       </tr>
     `);
 
   $("#ledgerTable").innerHTML = rows.length
     ? rows.join("")
-    : `<tr><td colspan="5">Sem lanÃ§amentos registrados.</td></tr>`;
+    : `<tr><td colspan="5">Sem lançamentos registrados.</td></tr>`;
 }
 
 function renderLedgerTable() {
@@ -1892,13 +1892,13 @@ function renderLedgerTable() {
         <td>${escapeHtml(entry.name)}</td>
         <td class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</td>
         <td>${formatCopper(entry.amountCopper)}</td>
-        <td><button class="icon-button" type="button" title="Remover lanÃ§amento" data-action="delete-ledger" data-id="${escapeAttr(entry.id)}">âœ•</button></td>
+        <td><button class="icon-button" type="button" title="Remover lançamento" data-action="delete-ledger" data-id="${escapeAttr(entry.id)}">✕</button></td>
       </tr>
     `);
 
   const html = getCachedValue(renderCache.ledgerRowsHtml, getCacheKey(state.revision, rows.length), () => rows.length
     ? rows.join("")
-    : `<tr><td colspan="5">Sem lanÃ§amentos registrados.</td></tr>`);
+    : `<tr><td colspan="5">Sem lançamentos registrados.</td></tr>`);
   setHtmlIfChanged($("#ledgerTable"), html);
 }
 
@@ -1907,11 +1907,11 @@ function handleLedgerAction(event) {
   if (!button) {
     return;
   }
-  if (confirm("Remover este lanÃ§amento?")) {
+  if (confirm("Remover este lançamento?")) {
     state.ledger = state.ledger.filter((entry) => entry.id !== button.dataset.id);
     saveState();
     render();
-    showToast("LanÃ§amento removido.");
+    showToast("Lançamento removido.");
   }
 }
 
@@ -1920,7 +1920,7 @@ function renderCalendar() {
     return;
   }
   $("#autoProcessRecurring").checked = state.autoProcessRecurring === true;
-  $("#calendarYearTitle").textContent = `CalendÃ¡rio do ciclo ${getCampaignYear(state.currentDay) + 1}`;
+  $("#calendarYearTitle").textContent = `Calendário do ciclo ${getCampaignYear(state.currentDay) + 1}`;
   const entries = getCalendarEntries();
   const incomeTotal = entries
     .filter((entry) => entry.type === "income")
@@ -1930,9 +1930,9 @@ function renderCalendar() {
     .reduce((total, entry) => total + (entry.amountCopper || 0), 0);
   const pendingCount = entries.filter((entry) => entry.status === "pending").length;
   const summaryHtml = [
-    `<span class="chip income">Receitas no calendÃ¡rio: ${formatCopper(incomeTotal)}</span>`,
-    `<span class="chip expense">Despesas no calendÃ¡rio: ${formatCopper(expenseTotal)}</span>`,
-    `<span class="chip ${pendingCount ? "warn" : ""}">PendÃªncias recorrentes: ${pendingCount}</span>`,
+    `<span class="chip income">Receitas no calendário: ${formatCopper(incomeTotal)}</span>`,
+    `<span class="chip expense">Despesas no calendário: ${formatCopper(expenseTotal)}</span>`,
+    `<span class="chip ${pendingCount ? "warn" : ""}">Pendências recorrentes: ${pendingCount}</span>`,
     `<span class="chip">Hoje: ${formatCalendarDate(state.currentDay)}</span>`
   ].join("");
   setHtmlIfChanged($("#calendarSummary"), summaryHtml);
@@ -1950,7 +1950,7 @@ function renderCalendar() {
             <span>${monthEntries.length} registro${monthEntries.length === 1 ? "" : "s"}</span>
           </header>
           <div class="calendar-entry-list">
-            ${monthEntries.length ? monthEntries.map(renderCalendarEntry).join("") : renderEmpty("Sem registros", "Nenhum gasto, receita ou evento neste mÃªs.")}
+            ${monthEntries.length ? monthEntries.map(renderCalendarEntry).join("") : renderEmpty("Sem registros", "Nenhum gasto, receita ou evento neste mês.")}
           </div>
         </section>
       `;
@@ -2029,8 +2029,8 @@ function renderCalendarEntry(entry) {
   const amount = entry.amountCopper ? `<strong>${formatCopper(entry.amountCopper)}</strong>` : "";
   const actions = isAdmin() && entry.kind === "event"
     ? `<div class="card-actions">
-        <button class="icon-button" type="button" title="Editar evento" data-action="edit-event" data-id="${escapeAttr(entry.id)}">âœŽ</button>
-        <button class="icon-button" type="button" title="Remover evento" data-action="delete-event" data-id="${escapeAttr(entry.id)}">âœ•</button>
+        <button class="icon-button" type="button" title="Editar evento" data-action="edit-event" data-id="${escapeAttr(entry.id)}">✎</button>
+        <button class="icon-button" type="button" title="Remover evento" data-action="delete-event" data-id="${escapeAttr(entry.id)}">✕</button>
       </div>`
     : "";
   const statusLabel = {
@@ -2080,7 +2080,7 @@ function saveCalendarEvent(event) {
   clearEventForm();
   toggleComposer("event", false, { silent: true });
   render();
-  showToast("Evento salvo no calendÃ¡rio.");
+  showToast("Evento salvo no calendário.");
 }
 
 function clearEventForm() {
@@ -2119,9 +2119,9 @@ function handleCalendarAction(event) {
 function getEventTypeLabel(type) {
   const labels = {
     event: "Evento",
-    session: "SessÃ£o",
-    quest: "MissÃ£o",
-    warning: "PressÃ¡gio"
+    session: "Sessão",
+    quest: "Missão",
+    warning: "Presságio"
   };
   return labels[type] || "Evento";
 }
@@ -2249,11 +2249,11 @@ function renderMarketStatus() {
   const permanentTotal = state.market.stock.permanent.length;
   const consumableTotal = state.market.stock.consumable.length;
   const status = [
-    `<span class="chip ${catalogLoaded ? "income" : "warn"}">${catalogLoaded ? `${catalog.length} itens no catÃ¡logo` : "CatÃ¡logo pendente"}</span>`,
+    `<span class="chip ${catalogLoaded ? "income" : "warn"}">${catalogLoaded ? `${catalog.length} itens no catálogo` : "Catálogo pendente"}</span>`,
     `<span class="chip">Estoque de ${formatCalendarDate(state.market.lastRestockDay || state.currentDay)}</span>`,
-    `<span class="chip ${due ? "warn" : ""}">PrÃ³xima troca em ${formatCalendarDate(nextDay)}</span>`,
+    `<span class="chip ${due ? "warn" : ""}">Próxima troca em ${formatCalendarDate(nextDay)}</span>`,
     `<span class="chip premium">Permanentes: ${permanentTotal}</span>`,
-    `<span class="chip income">ConsumÃ­veis: ${consumableTotal}</span>`
+    `<span class="chip income">Consumíveis: ${consumableTotal}</span>`
   ];
   setHtmlIfChanged($("#marketStatus"), status.join(""));
 }
@@ -2271,7 +2271,7 @@ function renderMarketSection(section, listId, labelId) {
       count: stock.length,
       html: stock.length
         ? stock.map((item) => renderMarketCard(item, section)).join("")
-        : renderEmpty("Mercado vazio", catalogLoaded ? "Gere o estoque dos mercadores." : "O catÃ¡logo local ainda nÃ£o foi carregado.")
+        : renderEmpty("Mercado vazio", catalogLoaded ? "Gere o estoque dos mercadores." : "O catálogo local ainda não foi carregado.")
     };
   });
   const label = $(`#${labelId}`);
@@ -2311,11 +2311,11 @@ function getFilteredMarketStock(section) {
 
 function renderMarketCard(item, section) {
   const adjustmentLabel = item.stockType === "premium"
-    ? "SobrepreÃ§o +10%"
+    ? "Sobrepreço +10%"
     : `Desconto ${Math.abs(item.adjustmentPercent)}%`;
   const rarityClass = `rarity-${String(item.rarity || "").toLowerCase()}`;
   const sectionClass = section === "consumable" ? "section-consumable" : "section-permanent";
-  const sectionLabel = section === "consumable" ? "ConsumÃ­vel" : "Permanente";
+  const sectionLabel = section === "consumable" ? "Consumível" : "Permanente";
   const rarityChipClass = "";
   return `
     <article class="market-card ${rarityClass} ${sectionClass}">
@@ -2323,7 +2323,7 @@ function renderMarketCard(item, section) {
         <div>
           <h3>${escapeHtml(item.name)}</h3>
           <div class="market-meta">
-            <span class="level-pill">NÃ­vel ${item.level}</span>
+            <span class="level-pill">Nível ${item.level}</span>
             <span>${escapeHtml(item.rarity)}</span>
             <span>${escapeHtml(item.category)}</span>
           </div>
@@ -2345,7 +2345,7 @@ function renderMarketCard(item, section) {
 
 function generateMarketStock(options = {}) {
   if (!catalogLoaded || !catalog.length) {
-    showToast("O catÃ¡logo de itens ainda nÃ£o carregou.");
+    showToast("O catálogo de itens ainda não carregou.");
     return false;
   }
   if (!isAdmin()) {
@@ -2566,7 +2566,7 @@ function handleAccessSubmit(event) {
   const existing = state.users.find((user) => normalizeAccessName(user.name) === normalizedName);
   if (existing) {
     if (String(existing.pin || "") !== pin) {
-      showToast("Nome ou PIN invÃ¡lidos.");
+      showToast("Nome ou PIN inválidos.");
       return;
     }
     sessionUserId = existing.id;
@@ -2617,12 +2617,12 @@ function renderUsers() {
             </div>
           </div>
           <div class="card-actions">
-            <button class="icon-button" type="button" title="Editar usuÃ¡rio" data-action="edit-user" data-id="${escapeAttr(user.id)}">âœŽ</button>
-            ${user.role === userRoles.admin ? "" : `<button class="icon-button" type="button" title="Remover usuÃ¡rio" data-action="delete-user" data-id="${escapeAttr(user.id)}">âœ•</button>`}
+            <button class="icon-button" type="button" title="Editar usuário" data-action="edit-user" data-id="${escapeAttr(user.id)}">✎</button>
+            ${user.role === userRoles.admin ? "" : `<button class="icon-button" type="button" title="Remover usuário" data-action="delete-user" data-id="${escapeAttr(user.id)}">✕</button>`}
           </div>
         </article>
       `).join("")
-    : renderEmpty("Nenhum usuÃ¡rio", "Crie os perfis dos jogadores aqui.");
+    : renderEmpty("Nenhum usuário", "Crie os perfis dos jogadores aqui.");
 }
 
 function clearUserForm() {
@@ -2633,7 +2633,7 @@ function clearUserForm() {
 function saveUser(event) {
   event.preventDefault();
   if (!isAdmin()) {
-    showToast("Somente o Mestre pode gerenciar usuÃ¡rios.");
+    showToast("Somente o Mestre pode gerenciar usuários.");
     return;
   }
   const id = $("#userId").value;
@@ -2645,7 +2645,7 @@ function saveUser(event) {
     createdAt: Date.now()
   };
   if (!payload.name) {
-    showToast("Informe um nome para o usuÃ¡rio.");
+    showToast("Informe um nome para o usuário.");
     return;
   }
   const existingIndex = state.users.findIndex((user) => user.id === id);
@@ -2657,7 +2657,7 @@ function saveUser(event) {
   saveState();
   clearUserForm();
   render();
-  showToast("UsuÃ¡rio salvo.");
+  showToast("Usuário salvo.");
 }
 
 function handleUserAction(event) {
@@ -2676,7 +2676,7 @@ function handleUserAction(event) {
     $("#userPin").value = user.pin || "";
     $("#userManagementPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  if (button.dataset.action === "delete-user" && confirm(`Remover o usuÃ¡rio ${user.name}?`)) {
+  if (button.dataset.action === "delete-user" && confirm(`Remover o usuário ${user.name}?`)) {
     state.users = state.users.filter((item) => item.id !== user.id);
     if (sessionUserId === user.id) {
       sessionUserId = null;
@@ -2685,7 +2685,7 @@ function handleUserAction(event) {
     }
     saveState();
     render();
-    showToast("UsuÃ¡rio removido.");
+    showToast("Usuário removido.");
   }
 }
 
@@ -2733,7 +2733,7 @@ function importData(event) {
     render();
     showToast("Dados importados.");
   } catch (error) {
-    showToast("JSON invÃ¡lido. A importaÃ§Ã£o nÃ£o foi aplicada.");
+    showToast("JSON inválido. A importação não foi aplicada.");
   }
 }
 
@@ -2754,7 +2754,7 @@ function resetData() {
 
 function getKindLabel(kind) {
   const labels = {
-    building: "ConstruÃ§Ã£o",
+    building: "Construção",
     npc: "NPC",
     room: "Sala especial",
     tavern: "Taverna",
@@ -2841,7 +2841,7 @@ async function handleImageUpload(event, hiddenInputId, previewId) {
     renderImagePreview(previewId, dataUrl);
     showToast("Imagem carregada.");
   } catch (error) {
-    showToast("NÃ£o foi possÃ­vel carregar a imagem.");
+    showToast("Não foi possível carregar a imagem.");
   }
 }
 
@@ -2878,7 +2878,7 @@ function renderImagePreview(previewId, dataUrl) {
     return;
   }
   preview.innerHTML = dataUrl
-    ? `<img src="${escapeAttr(dataUrl)}" alt="PrÃ©via da imagem">`
+    ? `<img src="${escapeAttr(dataUrl)}" alt="Prévia da imagem">`
     : `<span>Nenhuma imagem selecionada</span>`;
 }
 
@@ -3030,7 +3030,7 @@ function renderDashboard() {
     ? marketPreview.map((item) => `
         <article class="ledger-item">
           <strong>${escapeHtml(item.name)}</strong>
-          <p>NÃ­vel ${item.level} Â· ${escapeHtml(item.rarity)} Â· ${formatCopper(item.merchantCopper)}</p>
+          <p>Nível ${item.level} · ${escapeHtml(item.rarity)} · ${formatCopper(item.merchantCopper)}</p>
         </article>
       `).join("")
     : renderEmpty("Mercado vazio", "Gere o estoque dos mercadores."));
@@ -3043,10 +3043,10 @@ function renderDashboard() {
     ? recent.map((entry) => `
         <article class="ledger-item">
           <strong>${escapeHtml(entry.name)}</strong>
-          <p>${formatCalendarDate(entry.day)} Â· <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> Â· ${formatCopper(entry.amountCopper)}</p>
+          <p>${formatCalendarDate(entry.day)} · <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> · ${formatCopper(entry.amountCopper)}</p>
         </article>
       `).join("")
-    : renderEmpty("Sem lanÃ§amentos", "O livro-caixa ainda nÃ£o recebeu registros."));
+    : renderEmpty("Sem lançamentos", "O livro-caixa ainda não recebeu registros."));
   setHtmlIfChanged($("#recentLedger"), recentHtml);
 }
 
@@ -3120,7 +3120,7 @@ function renderCampfire() {
   }
   if (ownerSelect) {
     const options = [
-      `<option value="">Sem vÃ­nculo</option>`,
+      `<option value="">Sem vínculo</option>`,
       ...state.users
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
@@ -3174,7 +3174,7 @@ function renderCampfire() {
     galleryCount.textContent = `${state.campfire.heroes.length} card${state.campfire.heroes.length === 1 ? "" : "s"}`;
   }
   if (introNote) {
-    introNote.textContent = state.campfire.legionNotes || "Minimus Legio ainda nÃ£o recebeu anotaÃ§Ãµes.";
+    introNote.textContent = state.campfire.legionNotes || "Minimus Legio ainda não recebeu anotações.";
   }
 
   const boardKey = getCacheKey(
@@ -3236,7 +3236,7 @@ function renderCampfireGoalColumn(hero, category, canEditHero) {
       <div class="campfire-goal-list">
         ${goals.length
           ? goals.map((goal) => renderCampfireGoalItem(hero, goal, canEditHero)).join("")
-          : renderEmpty("Sem objetivos", "Ainda nÃ£o hÃ¡ anotaÃ§Ãµes nesta categoria.")}
+          : renderEmpty("Sem objetivos", "Ainda não há anotações nesta categoria.")}
       </div>
     </article>
   `;
@@ -3247,8 +3247,8 @@ function renderCampfireGoalItem(hero, goal, canEditHero) {
   const categoryClass = `goal-${goal.category}`;
   const actions = canEditHero ? `
     <div class="card-actions">
-      <button class="icon-button" type="button" title="Editar objetivo" data-action="edit-campfire-goal" data-hero-id="${escapeAttr(hero.id)}" data-goal-id="${escapeAttr(goal.id)}">âœŽ</button>
-      <button class="icon-button" type="button" title="Remover objetivo" data-action="delete-campfire-goal" data-hero-id="${escapeAttr(hero.id)}" data-goal-id="${escapeAttr(goal.id)}">âœ•</button>
+      <button class="icon-button" type="button" title="Editar objetivo" data-action="edit-campfire-goal" data-hero-id="${escapeAttr(hero.id)}" data-goal-id="${escapeAttr(goal.id)}">✎</button>
+      <button class="icon-button" type="button" title="Remover objetivo" data-action="delete-campfire-goal" data-hero-id="${escapeAttr(hero.id)}" data-goal-id="${escapeAttr(goal.id)}">✕</button>
     </div>
   ` : "";
   return `
@@ -3278,7 +3278,7 @@ function renderCampfireGallery() {
   });
   return heroes.length
     ? heroes.map((hero) => renderCampfireHeroCard(hero)).join("")
-    : renderEmpty("Sem personagens na fogueira", "Quando os jogadores preencherem seus perfis, os objetivos aparecerÃ£o aqui.");
+    : renderEmpty("Sem personagens na fogueira", "Quando os jogadores preencherem seus perfis, os objetivos aparecerão aqui.");
 }
 
 function renderCampfireHeroCard(hero) {
@@ -3296,8 +3296,8 @@ function renderCampfireHeroCard(hero) {
   const statusLabel = isOwnHero ? "Seu personagem" : "";
   const actions = canEditHero ? `
     <div class="card-actions">
-      <button class="icon-button" type="button" title="Editar personagem" data-action="edit-campfire-hero" data-hero-id="${escapeAttr(hero.id)}">âœŽ</button>
-      <button class="icon-button" type="button" title="Remover personagem" data-action="delete-campfire-hero" data-hero-id="${escapeAttr(hero.id)}">âœ•</button>
+      <button class="icon-button" type="button" title="Editar personagem" data-action="edit-campfire-hero" data-hero-id="${escapeAttr(hero.id)}">✎</button>
+      <button class="icon-button" type="button" title="Remover personagem" data-action="delete-campfire-hero" data-hero-id="${escapeAttr(hero.id)}">✕</button>
     </div>
   ` : "";
   return `
@@ -3333,7 +3333,7 @@ function renderCampfireHeroCard(hero) {
                         ${canSeeSecrets && goal.secret ? `<em>Secreto</em>` : ""}
                       </article>
                     `).join("")
-                  : `<div class="hero-goal-empty">Nada visÃ­vel.</div>`}
+                  : `<div class="hero-goal-empty">Nada visível.</div>`}
               </div>
             </section>
           `;
@@ -3366,7 +3366,7 @@ function loadCampfireHero(heroId) {
 function saveCampfireHero(event) {
   event.preventDefault();
   if (!isAuthenticated()) {
-    showToast("FaÃ§a login para usar a fogueira.");
+    showToast("Faça login para usar a fogueira.");
     return;
   }
   const name = $("#campfireCharacterName").value.trim();
@@ -3379,7 +3379,7 @@ function saveCampfireHero(event) {
   const ownHero = getCampfireHeroForUser(getActiveUserId());
   const currentHero = selectedHero && canManageCampfireHero(selectedHero) ? selectedHero : ownHero;
   if (selectedHero && !canManageCampfireHero(selectedHero)) {
-    showToast("VocÃª sÃ³ pode editar o seu prÃ³prio personagem.");
+    showToast("Você só pode editar o seu próprio personagem.");
     return;
   }
   const payload = {
@@ -3430,7 +3430,7 @@ function clearCampfireHeroImage() {
 function saveCampfireGoal(event) {
   event.preventDefault();
   if (!isAuthenticated()) {
-    showToast("FaÃ§a login para usar a fogueira.");
+    showToast("Faça login para usar a fogueira.");
     return;
   }
   const heroId = $("#campfireHeroId").value;
@@ -3491,13 +3491,13 @@ function clearCampfireGoalForm(options = {}) {
 function saveCampfireLegionNotes(event) {
   event.preventDefault();
   if (!isAuthenticated()) {
-    showToast("FaÃ§a login para editar o Minimus Legio.");
+    showToast("Faça login para editar o Minimus Legio.");
     return;
   }
   state.campfire.legionNotes = $("#campfireLegionNotes").value.trim();
   saveState();
   renderCampfire();
-  showToast("AnotaÃ§Ãµes do Minimus Legio salvas.");
+  showToast("Anotações do Minimus Legio salvas.");
 }
 
 function handleCampfireAction(event) {
