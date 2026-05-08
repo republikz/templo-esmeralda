@@ -1,12 +1,44 @@
 (function () {
   "use strict";
 
+  const STATE_API_URL = "/api/state";
+  let pendingSave = Promise.resolve(true);
+
   function hasSharedState(value) {
     return Boolean(value)
       && Array.isArray(value.rooms)
       && Array.isArray(value.npcs)
       && Array.isArray(value.financeSources)
       && Array.isArray(value.users);
+  }
+
+  function notify(message) {
+    if (typeof window.showToast === "function") {
+      window.showToast(message);
+    } else {
+      console.warn(message);
+    }
+  }
+
+  function normalizePayload(nextState) {
+    const payloadState = { ...nextState };
+    delete payloadState.activeUserId;
+    return payloadState;
+  }
+
+  async function sendState(payloadState) {
+    const response = await fetch(STATE_API_URL, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payloadState)
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`HTTP ${response.status}: ${detail || "sem detalhes"}`);
+    }
+
+    return response.text();
   }
 
   window.shouldBootstrapFromSeed = function shouldBootstrapFromSeed(remoteState, seedState) {
@@ -18,33 +50,45 @@
 
   window.persistState = async function persistState(payload) {
     try {
-      const response = await fetch("/api/state", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: payload
-      });
-
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        console.error("Falha ao salvar no servidor", response.status, detail);
-        if (typeof window.showToast === "function") {
-          window.showToast("Não consegui salvar no servidor. Verifique as variáveis do Supabase no Cloudflare.");
-        }
-        return false;
-      }
-
-      const text = await response.text();
-      if (text.trim() && typeof window.normalizeState === "function" && typeof window.saveLocalState === "function") {
-        window.saveLocalState(window.normalizeState(JSON.parse(text)));
-      }
-
+      const payloadState = typeof payload === "string" ? JSON.parse(payload) : payload;
+      await sendState(payloadState);
       return true;
     } catch (error) {
       console.error("Falha ao salvar no servidor", error);
-      if (typeof window.showToast === "function") {
-        window.showToast("Não consegui salvar no servidor. A alteração pode sumir ao atualizar.");
-      }
+      notify("Falha ao salvar no servidor. A mudança não ficará após atualizar.");
       return false;
     }
+  };
+
+  window.saveState = function saveState(nextState = window.state) {
+    if (!nextState || typeof nextState !== "object") {
+      notify("Falha ao salvar: estado da campanha indisponível.");
+      return pendingSave;
+    }
+
+    nextState.revision = (Number(nextState.revision) || 0) + 1;
+    nextState.updatedAt = Date.now();
+    const payloadState = normalizePayload(nextState);
+
+    try {
+      localStorage.setItem("pf2e-base-manager-v1", JSON.stringify(payloadState));
+    } catch (error) {
+      console.warn("Falha ao atualizar cache local", error);
+    }
+
+    pendingSave = pendingSave
+      .catch(() => true)
+      .then(async () => {
+        try {
+          await sendState(payloadState);
+          return true;
+        } catch (error) {
+          console.error("Falha ao salvar no servidor", error);
+          notify("Falha ao salvar no servidor. Verifique /api/health e as variáveis do Supabase.");
+          return false;
+        }
+      });
+
+    return pendingSave;
   };
 }());
