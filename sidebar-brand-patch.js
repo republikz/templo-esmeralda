@@ -58,6 +58,13 @@
         display: block;
         pointer-events: none;
       }
+      .nav-button .nav-label {
+        width: auto;
+        min-width: 0;
+        flex: 1 1 auto;
+        color: inherit;
+        margin: 0;
+      }
       .sidebar-toggle {
         margin-left: auto;
         width: 36px;
