@@ -1,6 +1,7 @@
 const DEFAULT_TABLE = "campaign_state";
 const DEFAULT_BUCKET = "campaign-assets";
 const DEFAULT_ROW_ID = "main";
+const REMOTE_REVISION_FLOOR = 1000000;
 
 function getConfig(env) {
   const supabaseUrl = String(env.SUPABASE_URL || "").replace(/\/+$/, "");
@@ -24,6 +25,29 @@ function jsonResponse(body, init = {}) {
 
 function errorResponse(message, status = 500) {
   return jsonResponse(JSON.stringify({ error: message }), { status });
+}
+
+function hasSharedState(value) {
+  return Boolean(value)
+    && Array.isArray(value.rooms)
+    && Array.isArray(value.npcs)
+    && Array.isArray(value.financeSources)
+    && Array.isArray(value.users);
+}
+
+function normalizeRemoteRevision(row) {
+  const state = row?.state_json;
+  if (!hasSharedState(state)) {
+    return state || {};
+  }
+  return {
+    ...state,
+    revision: Math.max(
+      Number(state.revision) || 0,
+      Number(row.revision) || 0,
+      REMOTE_REVISION_FLOOR
+    )
+  };
 }
 
 function parseDataUrl(value) {
@@ -228,7 +252,7 @@ export async function onRequest({ request, env }) {
           }
         });
       }
-      return jsonResponse(JSON.stringify(row.state_json), { status: 200 });
+      return jsonResponse(JSON.stringify(normalizeRemoteRevision(row)), { status: 200 });
     }
 
     if (request.method === "PUT") {
