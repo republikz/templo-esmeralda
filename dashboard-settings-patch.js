@@ -2,6 +2,7 @@
   "use strict";
 
   let renderWrapped = false;
+  let toastWrapped = false;
   let settingsPrepared = false;
   let lastHeroHtml = "";
   let lastMarketHtml = "";
@@ -16,6 +17,134 @@
     })[char]);
   }
 
+  function injectStyles() {
+    if (document.querySelector("#dashboardSettingsPatchStyles")) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.id = "dashboardSettingsPatchStyles";
+    style.textContent = `
+      #view-dashboard .metric-grid[hidden] { display: none !important; }
+      .dash-hero-panel {
+        margin-bottom: 16px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 14% 10%, rgba(80, 212, 174, .18), transparent 32%),
+          radial-gradient(circle at 88% 0%, rgba(210, 154, 68, .17), transparent 28%),
+          linear-gradient(135deg, rgba(22, 27, 23, .96), rgba(12, 14, 13, .98));
+      }
+      .dash-hero-body {
+        display: grid;
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 18px;
+        align-items: stretch;
+      }
+      .dash-hero-avatar {
+        width: 104px;
+        min-height: 104px;
+        border-radius: 10px;
+        border: 1px solid rgba(222, 184, 93, .45);
+        background: linear-gradient(145deg, rgba(84, 57, 31, .85), rgba(13, 15, 14, .95));
+        display: grid;
+        place-items: center;
+        color: var(--paper);
+        font-family: var(--font-display);
+        font-size: 2rem;
+        box-shadow: inset 0 0 22px rgba(0, 0, 0, .32);
+        overflow: hidden;
+      }
+      .dash-hero-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .dash-hero-goals {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .dash-hero-goal {
+        min-width: 0;
+        border: 1px solid rgba(222, 184, 93, .28);
+        border-radius: 8px;
+        padding: 12px;
+        background: rgba(7, 9, 8, .5);
+      }
+      .dash-hero-goal-short { border-color: rgba(82, 220, 146, .55); box-shadow: inset 0 1px 0 rgba(82, 220, 146, .12); }
+      .dash-hero-goal-medium { border-color: rgba(255, 170, 64, .58); box-shadow: inset 0 1px 0 rgba(255, 170, 64, .12); }
+      .dash-hero-goal-long { border-color: rgba(166, 112, 255, .58); box-shadow: inset 0 1px 0 rgba(166, 112, 255, .12); }
+      .dash-hero-goal strong {
+        display: block;
+        color: var(--paper);
+        font-size: .9rem;
+        margin-bottom: 8px;
+      }
+      .dash-hero-goal p {
+        margin: 8px 0 0;
+        color: rgba(255, 247, 224, .86);
+        line-height: 1.35;
+        font-size: .9rem;
+      }
+      .dash-hero-goal span {
+        color: var(--muted);
+        font-size: .86rem;
+      }
+      .dash-hero-goal em {
+        display: inline-block;
+        margin-left: 6px;
+        color: #f5c36b;
+        font-size: .68rem;
+        text-transform: uppercase;
+        font-style: normal;
+        letter-spacing: 0;
+      }
+      .dash-market-summary {
+        border: 1px solid rgba(222, 184, 93, .32);
+        border-radius: 8px;
+        padding: 15px;
+        background: linear-gradient(135deg, rgba(18, 23, 20, .9), rgba(8, 10, 9, .95));
+      }
+      .dash-market-summary + .dash-market-summary { margin-top: 12px; }
+      .dash-market-summary span {
+        display: block;
+        color: var(--muted);
+        font-size: .78rem;
+        text-transform: uppercase;
+        font-weight: 800;
+      }
+      .dash-market-summary strong {
+        display: block;
+        margin-top: 8px;
+        color: var(--paper);
+        font-family: var(--font-display);
+        font-size: clamp(1.45rem, 3vw, 2.2rem);
+        line-height: 1;
+      }
+      .settings-date-panel .day-control {
+        margin: 0;
+        display: flex;
+        align-items: end;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .settings-date-panel .day-control label {
+        min-width: 160px;
+      }
+      @media (max-width: 980px) {
+        .dash-hero-body { grid-template-columns: 88px minmax(0, 1fr); }
+        .dash-hero-avatar { width: 88px; min-height: 88px; }
+        .dash-hero-goals { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 680px) {
+        .dash-hero-body { grid-template-columns: 1fr; }
+        .dash-hero-avatar { width: 100%; min-height: 180px; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   function getInitials(name) {
     return String(name || "?")
       .split(/\s+/)
@@ -24,13 +153,6 @@
       .map((part) => part[0])
       .join("")
       .toUpperCase();
-  }
-
-  function formatCopper(copper) {
-    if (typeof window.formatCopper === "function") {
-      return window.formatCopper(copper);
-    }
-    return `${Math.round((Number(copper) || 0) / 100)} gp`;
   }
 
   function formatCalendarDate(day) {
@@ -126,6 +248,10 @@
     if (!list || !section) {
       return;
     }
+    const eyebrow = section.querySelector(".eyebrow");
+    if (eyebrow) {
+      eyebrow.textContent = "Mercado Esmeralda";
+    }
     const title = section.querySelector("h2");
     if (title) {
       title.textContent = "Mercado Atual";
@@ -138,7 +264,7 @@
     const nextDay = typeof window.getNextMarketDay === "function" ? window.getNextMarketDay() : null;
     const html = `
       <article class="dash-market-summary">
-        <span>Itens disponíveis</span>
+        <span>Itens no mercado</span>
         <strong>${total}</strong>
       </article>
       <article class="dash-market-summary">
@@ -253,7 +379,21 @@
     }
   }
 
+  function wrapToast() {
+    if (toastWrapped || typeof window.showToast !== "function") {
+      return;
+    }
+    const originalToast = window.showToast;
+    window.showToast = function patchedToast(message, ...args) {
+      const nextMessage = message === "Saldo inicial salvo." ? "Saldo atual salvo." : message;
+      return originalToast.call(this, nextMessage, ...args);
+    };
+    toastWrapped = true;
+  }
+
   function applyAll() {
+    injectStyles();
+    wrapToast();
     applyTitle();
     applyDashboardPatch();
     applySettingsPatch();
