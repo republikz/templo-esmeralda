@@ -1,4 +1,4 @@
-const PATCH_TAG = '<script src="/persistence-patch.js?v=2" defer></script>';
+const PATCH_TAG = '<script src="/persistence-patch.js?v=3" defer></script>';
 
 export async function onRequest(context) {
   const response = await context.next();
