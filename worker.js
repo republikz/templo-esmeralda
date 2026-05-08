@@ -1,6 +1,7 @@
 import { onRequest as handleStateRequest } from "./functions/api/state.js";
+import { onRequest as handleHealthRequest } from "./functions/api/health.js";
 
-const PATCH_TAG = '<script src="/persistence-patch.js?v=1" defer></script>';
+const PATCH_TAG = '<script src="/persistence-patch.js?v=2" defer></script>';
 
 function notFound() {
   return new Response("Not found", {
@@ -43,6 +44,10 @@ export default {
 
     if (url.pathname === "/api/state" || url.pathname === "/api/state/") {
       return handleStateRequest({ request, env, ctx, params: {} });
+    }
+
+    if (url.pathname === "/api/health" || url.pathname === "/api/health/") {
+      return handleHealthRequest({ request, env, ctx, params: {} });
     }
 
     if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
