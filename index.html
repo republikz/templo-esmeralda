@@ -7,7 +7,67 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@400;500;700;800&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=8">
+    <link rel="stylesheet" href="styles.css?v=10">
+    <style id="room-reading-refinement">
+      .room-card {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .room-card > header {
+        order: 0;
+      }
+
+      .room-card > img,
+      .room-card > .room-image {
+        order: 1;
+      }
+
+      .room-card > p:not(:has(strong)) {
+        order: 2;
+        margin-top: 8px;
+        color: rgba(243, 234, 216, 0.74);
+        font-size: 0.94rem;
+        line-height: 1.5;
+      }
+
+      .room-card > p:has(strong) {
+        order: 3;
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(231, 197, 123, 0.16);
+      }
+
+      .room-card > p:has(strong) strong {
+        display: inline-flex;
+        align-items: center;
+        margin-right: 6px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .room-card > p:nth-of-type(1):has(strong),
+      .room-card > p:nth-of-type(1):has(strong) strong {
+        color: #ffe0a0;
+      }
+
+      .room-card > p:nth-of-type(1):has(strong) strong {
+        background: rgba(208, 164, 88, 0.12);
+      }
+
+      .room-card > p:nth-of-type(2):has(strong),
+      .room-card > p:nth-of-type(2):has(strong) strong {
+        color: #d7dbff;
+      }
+
+      .room-card > p:nth-of-type(2):has(strong) strong {
+        background: rgba(132, 140, 255, 0.12);
+      }
+    </style>
   </head>
   <body>
     <div class="app-shell">
