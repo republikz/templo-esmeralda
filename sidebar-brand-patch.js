@@ -2,39 +2,6 @@
   "use strict";
 
   const STORAGE_KEY = "templo-sidebar-collapsed";
-  const GEM_SVG = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Esmeralda">
-      <defs>
-        <linearGradient id="emeraldTop" x1="18" y1="8" x2="78" y2="54" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stop-color="#e9fff2"/>
-          <stop offset="0.22" stop-color="#8ff2bd"/>
-          <stop offset="0.58" stop-color="#23b878"/>
-          <stop offset="1" stop-color="#067351"/>
-        </linearGradient>
-        <linearGradient id="emeraldCore" x1="22" y1="20" x2="70" y2="86" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stop-color="#65f5a8"/>
-          <stop offset="0.45" stop-color="#129667"/>
-          <stop offset="1" stop-color="#063f35"/>
-        </linearGradient>
-        <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-          <feGaussianBlur stdDeviation="2.4" result="blur"/>
-          <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.12 0 0 0 0 0.94 0 0 0 0 0.58 0 0 0 .75 0"/>
-          <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
-      <path d="M18 31 33 13h30l15 18-30 53Z" fill="#064b3e" opacity=".95" filter="url(#glow)"/>
-      <path d="M18 31 33 13h30l15 18H18Z" fill="url(#emeraldTop)"/>
-      <path d="M18 31h60L48 84Z" fill="url(#emeraldCore)"/>
-      <path d="M33 13 40 31H18Z" fill="#b8ffd4" opacity=".72"/>
-      <path d="M63 13 56 31h22Z" fill="#55dfa0" opacity=".72"/>
-      <path d="M40 31h16L48 84Z" fill="#31d58d" opacity=".58"/>
-      <path d="M18 31 48 84 40 31Z" fill="#07875e" opacity=".56"/>
-      <path d="M78 31 48 84 56 31Z" fill="#034b41" opacity=".55"/>
-      <path d="M40 31 33 13h30l-7 18Z" fill="#d7ffe6" opacity=".52"/>
-      <path d="M18 31 33 13h30l15 18-30 53Z" fill="none" stroke="#d8ffe7" stroke-width="3" stroke-linejoin="round" opacity=".82"/>
-      <path d="M33 19h29" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity=".72"/>
-    </svg>
-  `;
 
   function injectStyles() {
     if (document.querySelector("#sidebarBrandPatchStyles")) {
@@ -44,20 +11,6 @@
     style.id = "sidebarBrandPatchStyles";
     style.textContent = `
       .brand { position: relative; }
-      .brand-mark.emerald-brand-mark {
-        background:
-          radial-gradient(circle at 30% 18%, rgba(255, 255, 255, .22), transparent 24%),
-          linear-gradient(145deg, rgba(34, 78, 62, .96), rgba(52, 35, 28, .98));
-        border-color: rgba(105, 245, 169, .52);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), 0 0 22px rgba(31, 196, 126, .15);
-      }
-      .brand-mark.emerald-brand-mark::before { display: none !important; }
-      .brand-emerald-image {
-        width: 34px;
-        height: 34px;
-        display: block;
-        pointer-events: none;
-      }
       .nav-button .nav-label {
         width: auto;
         min-width: 0;
@@ -174,17 +127,6 @@
     }
   }
 
-  function applyBrandMark() {
-    const mark = document.querySelector(".brand-mark");
-    if (!mark || mark.dataset.emeraldApplied === "true") {
-      return;
-    }
-    const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(GEM_SVG)}`;
-    mark.classList.add("emerald-brand-mark");
-    mark.innerHTML = `<img class="brand-emerald-image" src="${src}" alt="">`;
-    mark.dataset.emeraldApplied = "true";
-  }
-
   function ensureNavLabels() {
     document.querySelectorAll(".nav-button").forEach((button) => {
       const icon = button.querySelector('span[aria-hidden="true"]');
@@ -219,7 +161,6 @@
 
   function applyAll() {
     injectStyles();
-    applyBrandMark();
     ensureNavLabels();
     ensureToggle();
   }
