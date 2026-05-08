@@ -7,6 +7,39 @@
   let lastHeroHtml = "";
   let lastMarketHtml = "";
 
+  const labelReplacements = new Map([
+    ["Painel", "Início"],
+    ["Dados", "Configurações"],
+    ["Dados da campanha", "Configurações"],
+    ["Mercado dos mercadores", "Mercado Esmeralda"],
+    ["Mercadores da base", "Mercado Esmeralda"],
+    ["Livro-caixa", "Tesouro"],
+    ["Lançamentos", "Movimentos do Cofre"],
+    ["Ciclos recorrentes", "Contratos recorrentes"],
+    ["Nova fonte", "Novo contrato"],
+    ["Editar fonte", "Editar contrato"],
+    ["Salvar fonte", "Salvar contrato"],
+    ["Fontes", "Contratos"],
+    ["Nenhuma fonte", "Nenhum contrato"],
+    ["Fonte sem nome", "Contrato sem nome"],
+    ["Sem lançamentos", "Sem movimentos"],
+    ["O livro-caixa ainda não recebeu registros.", "Os registros do tesouro ainda não receberam movimentos."],
+    ["Saldo e backup", "Saldo atual e backup"],
+    ["Saldo inicial em gp", "Saldo atual em gp"],
+    ["Salvar saldo", "Salvar saldo atual"]
+  ]);
+
+  const phraseReplacements = [
+    [/\bPactos\b/g, "Contratos"],
+    [/\bpactos\b/g, "contratos"],
+    [/\bLivro-caixa\b/g, "Tesouro"],
+    [/\blivro-caixa\b/g, "tesouro"],
+    [/\bpresságios\b/gi, "registros"],
+    [/\bPresságios\b/g, "Registros"],
+    [/\becos\b/gi, "registros"],
+    [/\bEcos\b/g, "Registros"]
+  ];
+
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (char) => ({
       "&": "&amp;",
@@ -15,6 +48,58 @@
       '"': "&quot;",
       "'": "&#39;"
     })[char]);
+  }
+
+  function adjustText(value) {
+    const trimmed = String(value ?? "").trim();
+    if (!trimmed) {
+      return value;
+    }
+    let next = labelReplacements.get(trimmed) || value;
+    phraseReplacements.forEach(([pattern, replacement]) => {
+      next = String(next).replace(pattern, replacement);
+    });
+    return next;
+  }
+
+  function replaceTextLabels(root = document.body) {
+    if (!root) {
+      return;
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest("script, style, textarea, input")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const nodes = [];
+    while (walker.nextNode()) {
+      nodes.push(walker.currentNode);
+    }
+    nodes.forEach((node) => {
+      const original = node.nodeValue;
+      const trimmed = original.trim();
+      if (!trimmed) {
+        return;
+      }
+      const adjusted = adjustText(trimmed);
+      if (adjusted !== trimmed) {
+        node.nodeValue = original.replace(trimmed, adjusted);
+      }
+    });
+
+    document.querySelectorAll("input, textarea, button, [title], [aria-label]").forEach((element) => {
+      ["placeholder", "title", "aria-label"].forEach((attr) => {
+        const value = element.getAttribute(attr);
+        const adjusted = adjustText(value);
+        if (value && adjusted !== value) {
+          element.setAttribute(attr, adjusted);
+        }
+      });
+    });
   }
 
   function injectStyles() {
@@ -354,12 +439,38 @@
   }
 
   function applyTitle() {
-    if (location.hash.replace("#", "") === "market") {
-      const title = document.querySelector("#viewTitle");
-      if (title) {
-        title.textContent = "Mercado Esmeralda";
-      }
+    const view = location.hash.replace("#", "") || "dashboard";
+    const title = document.querySelector("#viewTitle");
+    if (!title) {
+      return;
     }
+    if (view === "dashboard") {
+      title.textContent = "Início";
+    }
+    if (view === "market") {
+      title.textContent = "Mercado Esmeralda";
+    }
+    if (view === "settings") {
+      title.textContent = "Configurações";
+    }
+  }
+
+  function applyNavigationLabels() {
+    document.querySelectorAll(".nav-button").forEach((button) => {
+      const target = button.dataset.viewTarget;
+      const label = button.querySelector(".nav-label") || Array.from(button.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+      const names = {
+        dashboard: "Início",
+        settings: "Configurações"
+      };
+      if (target && names[target] && label) {
+        if (label.nodeType === Node.TEXT_NODE) {
+          label.nodeValue = ` ${names[target]}`;
+        } else {
+          label.textContent = names[target];
+        }
+      }
+    });
   }
 
   function applyDashboardPatch() {
@@ -385,8 +496,14 @@
     }
     const originalToast = window.showToast;
     window.showToast = function patchedToast(message, ...args) {
-      const nextMessage = message === "Saldo inicial salvo." ? "Saldo atual salvo." : message;
-      return originalToast.call(this, nextMessage, ...args);
+      const messages = new Map([
+        ["Saldo inicial salvo.", "Saldo atual salvo."],
+        ["Fonte financeira salva.", "Contrato salvo."],
+        ["Fonte removida.", "Contrato removido."],
+        ["Recorrentes processadas no livro-caixa.", "Recorrentes processadas nos registros do tesouro."],
+        ["Pendência registrada no livro-caixa.", "Pendência registrada no tesouro."]
+      ]);
+      return originalToast.call(this, messages.get(message) || adjustText(message), ...args);
     };
     toastWrapped = true;
   }
@@ -395,8 +512,10 @@
     injectStyles();
     wrapToast();
     applyTitle();
+    applyNavigationLabels();
     applyDashboardPatch();
     applySettingsPatch();
+    replaceTextLabels();
   }
 
   function wrapRender() {
