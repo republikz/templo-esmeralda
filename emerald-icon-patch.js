@@ -53,9 +53,13 @@
     if (!mark) {
       return;
     }
+    const currentImage = mark.querySelector(".brand-emerald-image");
+    if (mark.dataset.emeraldApplied === "true" && currentImage?.getAttribute("src") === EMERALD_SRC) {
+      return;
+    }
     mark.classList.add("emerald-brand-mark");
     mark.innerHTML = `<img class="brand-emerald-image" src="${EMERALD_SRC}" alt="">`;
-    mark.dataset.emeraldApplied = "pixel";
+    mark.dataset.emeraldApplied = "true";
   }
 
   function applyAll() {
