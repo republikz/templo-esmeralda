@@ -1,7 +1,7 @@
 import { onRequest as handleStateRequest } from "./functions/api/state.js";
 import { onRequest as handleHealthRequest } from "./functions/api/health.js";
 
-const PATCH_TAG = '<script src="/persistence-patch.js?v=2" defer></script>';
+const PATCH_TAG = '<script src="/persistence-patch.js?v=3" defer></script>';
 
 function notFound() {
   return new Response("Not found", {
