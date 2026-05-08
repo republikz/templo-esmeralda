@@ -11,15 +11,38 @@
     style.id = "emeraldIconPatchStyles";
     style.textContent = `
       .brand-mark.emerald-brand-mark {
-        background: linear-gradient(145deg, rgba(52, 35, 28, .98), rgba(13, 20, 16, .98));
-        border-color: rgba(100, 255, 174, .55);
+        width: 54px !important;
+        height: 54px !important;
+        min-width: 54px !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+        padding: 0 !important;
+      }
+      .brand-mark.emerald-brand-mark::before,
+      .brand-mark.emerald-brand-mark::after {
+        display: none !important;
       }
       .brand-emerald-image {
-        width: 38px !important;
-        height: 38px !important;
+        width: 50px !important;
+        height: 50px !important;
+        max-width: none !important;
+        max-height: none !important;
         image-rendering: pixelated;
         object-fit: contain;
-        filter: drop-shadow(0 0 7px rgba(34, 245, 127, .28));
+        display: block;
+        filter: drop-shadow(0 0 7px rgba(34, 245, 127, .2));
+      }
+      body.sidebar-collapsed .brand-mark.emerald-brand-mark {
+        width: 56px !important;
+        height: 56px !important;
+        min-width: 56px !important;
+      }
+      body.sidebar-collapsed .brand-emerald-image {
+        width: 52px !important;
+        height: 52px !important;
       }
     `;
     document.head.appendChild(style);
