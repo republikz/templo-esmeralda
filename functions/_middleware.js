@@ -5,7 +5,8 @@ const PATCH_TAGS = [
   '<script src="/emerald-icon-patch.js?v=4" defer></script>',
   '<script src="/recurring-finance-patch.js?v=1" defer></script>',
   '<script src="/date-cycle-patch.js?v=2" defer></script>',
-  '<script src="/ui-cleanup-image-patch.js?v=1" defer></script>'
+  '<script src="/ui-cleanup-image-patch.js?v=1" defer></script>',
+  '<script src="/auth-campfire-fix-patch.js?v=1" defer></script>'
 ];
 
 function injectPatches(html) {
