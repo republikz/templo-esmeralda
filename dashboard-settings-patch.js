@@ -7,7 +7,7 @@
   let lastHeroHtml = "";
   let lastMarketHtml = "";
 
-  const labelReplacements = new Map([
+  const LABELS = new Map([
     ["Painel", "Início"],
     ["Dados", "Configurações"],
     ["Dados da campanha", "Configurações"],
@@ -23,22 +23,10 @@
     ["Nenhuma fonte", "Nenhum contrato"],
     ["Fonte sem nome", "Contrato sem nome"],
     ["Sem lançamentos", "Sem movimentos"],
-    ["O livro-caixa ainda não recebeu registros.", "Os registros do tesouro ainda não receberam movimentos."],
     ["Saldo e backup", "Saldo atual e backup"],
     ["Saldo inicial em gp", "Saldo atual em gp"],
     ["Salvar saldo", "Salvar saldo atual"]
   ]);
-
-  const phraseReplacements = [
-    [/\bPactos\b/g, "Contratos"],
-    [/\bpactos\b/g, "contratos"],
-    [/\bLivro-caixa\b/g, "Tesouro"],
-    [/\blivro-caixa\b/g, "tesouro"],
-    [/\bpresságios\b/gi, "registros"],
-    [/\bPresságios\b/g, "Registros"],
-    [/\becos\b/gi, "registros"],
-    [/\bEcos\b/g, "Registros"]
-  ];
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -50,53 +38,27 @@
     })[char]);
   }
 
-  function adjustText(value) {
-    const trimmed = String(value ?? "").trim();
-    if (!trimmed) {
-      return value;
+  function setText(element, value) {
+    if (element && element.textContent.trim() !== value) {
+      element.textContent = value;
     }
-    let next = labelReplacements.get(trimmed) || value;
-    phraseReplacements.forEach(([pattern, replacement]) => {
-      next = String(next).replace(pattern, replacement);
-    });
-    return next;
   }
 
-  function replaceTextLabels(root = document.body) {
-    if (!root) {
-      return;
-    }
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const parent = node.parentElement;
-        if (!parent || parent.closest("script, style, textarea, input")) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-    const nodes = [];
-    while (walker.nextNode()) {
-      nodes.push(walker.currentNode);
-    }
-    nodes.forEach((node) => {
-      const original = node.nodeValue;
-      const trimmed = original.trim();
-      if (!trimmed) {
-        return;
-      }
-      const adjusted = adjustText(trimmed);
-      if (adjusted !== trimmed) {
-        node.nodeValue = original.replace(trimmed, adjusted);
+  function applyKnownLabels(root = document) {
+    root.querySelectorAll("h1, h2, h3, .eyebrow, button, label, .nav-label").forEach((element) => {
+      const current = element.textContent.trim();
+      const next = LABELS.get(current);
+      if (next) {
+        element.textContent = next;
       }
     });
 
-    document.querySelectorAll("input, textarea, button, [title], [aria-label]").forEach((element) => {
+    document.querySelectorAll("[placeholder], [title], [aria-label]").forEach((element) => {
       ["placeholder", "title", "aria-label"].forEach((attr) => {
         const value = element.getAttribute(attr);
-        const adjusted = adjustText(value);
-        if (value && adjusted !== value) {
-          element.setAttribute(attr, adjusted);
+        const next = LABELS.get(value);
+        if (next) {
+          element.setAttribute(attr, next);
         }
       });
     });
@@ -109,13 +71,12 @@
     const style = document.createElement("style");
     style.id = "dashboardSettingsPatchStyles";
     style.textContent = `
-      #view-dashboard .metric-grid[hidden] { display: none !important; }
+      #view-dashboard .metric-grid { display: none !important; }
       .dash-hero-panel {
         margin-bottom: 16px;
         overflow: hidden;
         background:
-          radial-gradient(circle at 14% 10%, rgba(80, 212, 174, .18), transparent 32%),
-          radial-gradient(circle at 88% 0%, rgba(210, 154, 68, .17), transparent 28%),
+          radial-gradient(circle at 14% 10%, rgba(80, 212, 174, .16), transparent 32%),
           linear-gradient(135deg, rgba(22, 27, 23, .96), rgba(12, 14, 13, .98));
       }
       .dash-hero-body {
@@ -148,6 +109,7 @@
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 12px;
+        min-width: 0;
       }
       .dash-hero-goal {
         min-width: 0;
@@ -156,9 +118,9 @@
         padding: 12px;
         background: rgba(7, 9, 8, .5);
       }
-      .dash-hero-goal-short { border-color: rgba(82, 220, 146, .55); box-shadow: inset 0 1px 0 rgba(82, 220, 146, .12); }
-      .dash-hero-goal-medium { border-color: rgba(255, 170, 64, .58); box-shadow: inset 0 1px 0 rgba(255, 170, 64, .12); }
-      .dash-hero-goal-long { border-color: rgba(166, 112, 255, .58); box-shadow: inset 0 1px 0 rgba(166, 112, 255, .12); }
+      .dash-hero-goal-short { border-color: rgba(82, 220, 146, .55); }
+      .dash-hero-goal-medium { border-color: rgba(255, 170, 64, .58); }
+      .dash-hero-goal-long { border-color: rgba(166, 112, 255, .58); }
       .dash-hero-goal strong {
         display: block;
         color: var(--paper);
@@ -170,6 +132,7 @@
         color: rgba(255, 247, 224, .86);
         line-height: 1.35;
         font-size: .9rem;
+        overflow-wrap: anywhere;
       }
       .dash-hero-goal span {
         color: var(--muted);
@@ -214,9 +177,7 @@
         flex-wrap: wrap;
         gap: 10px;
       }
-      .settings-date-panel .day-control label {
-        min-width: 160px;
-      }
+      .settings-date-panel .day-control label { min-width: 160px; }
       @media (max-width: 980px) {
         .dash-hero-body { grid-template-columns: 88px minmax(0, 1fr); }
         .dash-hero-avatar { width: 88px; min-height: 88px; }
@@ -245,13 +206,6 @@
       return window.formatCalendarDate(day);
     }
     return `Dia ${day}`;
-  }
-
-  function getHero() {
-    if (typeof window.getCampfireHeroForUser !== "function") {
-      return null;
-    }
-    return window.getCampfireHeroForUser();
   }
 
   function canSeeSecrets(hero) {
@@ -283,7 +237,7 @@
 
   function renderHeroPanel() {
     const dashboard = document.querySelector("#view-dashboard");
-    if (!dashboard) {
+    if (!dashboard || (location.hash || "#dashboard").replace("#", "") !== "dashboard") {
       return;
     }
     let panel = document.querySelector("#dashboardHeroPanel");
@@ -294,7 +248,7 @@
       dashboard.insertBefore(panel, dashboard.firstElementChild);
     }
 
-    const hero = getHero();
+    const hero = typeof window.getCampfireHeroForUser === "function" ? window.getCampfireHeroForUser() : null;
     const html = hero ? `
       <div class="section-header">
         <div>
@@ -307,9 +261,7 @@
         <div class="dash-hero-avatar ${hero.image ? "has-image" : ""}" aria-hidden="true">
           ${hero.image ? `<img src="${escapeHtml(hero.image)}" alt="">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}
         </div>
-        <div class="dash-hero-goals">
-          ${renderHeroGoals(hero)}
-        </div>
+        <div class="dash-hero-goals">${renderHeroGoals(hero)}</div>
       </div>
     ` : `
       <div class="section-header">
@@ -330,20 +282,14 @@
   function renderMarketSummary() {
     const list = document.querySelector("#dashboardMarketList");
     const section = list?.closest("section.panel");
-    if (!list || !section) {
+    if (!list || !section || (location.hash || "#dashboard").replace("#", "") !== "dashboard") {
       return;
     }
-    const eyebrow = section.querySelector(".eyebrow");
-    if (eyebrow) {
-      eyebrow.textContent = "Mercado Esmeralda";
-    }
-    const title = section.querySelector("h2");
-    if (title) {
-      title.textContent = "Mercado Atual";
-    }
+    setText(section.querySelector(".eyebrow"), "Mercado Esmeralda");
+    setText(section.querySelector("h2"), "Mercado Atual");
     const button = section.querySelector("#refreshMarketDashboard");
     if (button) {
-      button.hidden = true;
+      button.hidden = false;
     }
     const total = typeof window.getMarketStockTotal === "function" ? window.getMarketStockTotal() : 0;
     const nextDay = typeof window.getNextMarketDay === "function" ? window.getNextMarketDay() : null;
@@ -404,14 +350,8 @@
       }
       label.dataset.balanceRelabeled = "true";
     }
-    const heading = form.closest(".panel")?.querySelector("h2");
-    if (heading) {
-      heading.textContent = "Saldo atual e backup";
-    }
-    const submit = form.querySelector("button[type='submit']");
-    if (submit) {
-      submit.textContent = "Salvar saldo atual";
-    }
+    setText(form.closest(".panel")?.querySelector("h2"), "Saldo atual e backup");
+    setText(form.querySelector("button[type='submit']"), "Salvar saldo atual");
     if (!settingsPrepared) {
       form.addEventListener("submit", () => {
         const desiredCopper = Math.round((Number(input.value) || 0) * 100);
@@ -439,19 +379,15 @@
   }
 
   function applyTitle() {
-    const view = location.hash.replace("#", "") || "dashboard";
+    const view = (location.hash || "#dashboard").replace("#", "") || "dashboard";
     const title = document.querySelector("#viewTitle");
-    if (!title) {
-      return;
-    }
-    if (view === "dashboard") {
-      title.textContent = "Início";
-    }
-    if (view === "market") {
-      title.textContent = "Mercado Esmeralda";
-    }
-    if (view === "settings") {
-      title.textContent = "Configurações";
+    const titles = {
+      dashboard: "Início",
+      market: "Mercado Esmeralda",
+      settings: "Configurações"
+    };
+    if (title && titles[view]) {
+      title.textContent = titles[view];
     }
   }
 
@@ -459,10 +395,7 @@
     document.querySelectorAll(".nav-button").forEach((button) => {
       const target = button.dataset.viewTarget;
       const label = button.querySelector(".nav-label") || Array.from(button.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
-      const names = {
-        dashboard: "Início",
-        settings: "Configurações"
-      };
+      const names = { dashboard: "Início", settings: "Configurações" };
       if (target && names[target] && label) {
         if (label.nodeType === Node.TEXT_NODE) {
           label.nodeValue = ` ${names[target]}`;
@@ -473,21 +406,30 @@
     });
   }
 
-  function applyDashboardPatch() {
-    const metricGrid = document.querySelector("#view-dashboard .metric-grid");
-    if (metricGrid) {
-      metricGrid.hidden = true;
+  function applyFinanceLabels() {
+    const finance = document.querySelector("#view-finance");
+    if (!finance) {
+      return;
     }
-    renderHeroPanel();
-    renderMarketSummary();
+    setText(finance.querySelector("#sourceFormTitle"), "Novo contrato");
+    finance.querySelectorAll(".eyebrow, h2, h3, button, label").forEach((element) => {
+      const next = LABELS.get(element.textContent.trim());
+      if (next) {
+        element.textContent = next;
+      }
+    });
   }
 
-  function applySettingsPatch() {
-    moveDateControlToSettings();
-    prepareSettingsBalance();
-    if (location.hash.replace("#", "") === "settings") {
-      syncSettingsBalanceValue();
+  function applyMarketLabels() {
+    const market = document.querySelector("#view-market");
+    if (!market) {
+      return;
     }
+    market.querySelectorAll("h1, h2, .eyebrow").forEach((element) => {
+      if (/mercado|bazar/i.test(element.textContent)) {
+        element.textContent = "Mercado Esmeralda";
+      }
+    });
   }
 
   function wrapToast() {
@@ -503,7 +445,7 @@
         ["Recorrentes processadas no livro-caixa.", "Recorrentes processadas nos registros do tesouro."],
         ["Pendência registrada no livro-caixa.", "Pendência registrada no tesouro."]
       ]);
-      return originalToast.call(this, messages.get(message) || adjustText(message), ...args);
+      return originalToast.call(this, messages.get(message) || message, ...args);
     };
     toastWrapped = true;
   }
@@ -513,9 +455,14 @@
     wrapToast();
     applyTitle();
     applyNavigationLabels();
-    applyDashboardPatch();
-    applySettingsPatch();
-    replaceTextLabels();
+    applyKnownLabels(document);
+    renderHeroPanel();
+    renderMarketSummary();
+    moveDateControlToSettings();
+    prepareSettingsBalance();
+    syncSettingsBalanceValue();
+    applyFinanceLabels();
+    applyMarketLabels();
   }
 
   function wrapRender() {
@@ -534,10 +481,8 @@
   document.addEventListener("DOMContentLoaded", () => {
     wrapRender();
     applyAll();
-    setInterval(() => {
-      wrapRender();
-      applyAll();
-    }, 1000);
+    setTimeout(applyAll, 250);
+    setTimeout(applyAll, 900);
   });
   window.addEventListener("hashchange", () => queueMicrotask(applyAll));
 }());
