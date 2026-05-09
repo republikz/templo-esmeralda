@@ -2,6 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "templo-sidebar-collapsed";
+  let observerStarted = false;
 
   function injectStyles() {
     if (document.querySelector("#sidebarBrandPatchStyles")) {
@@ -130,7 +131,7 @@
   function ensureNavLabels() {
     document.querySelectorAll(".nav-button").forEach((button) => {
       const icon = button.querySelector('span[aria-hidden="true"]');
-      if (!icon) {
+      if (!icon || button.querySelector(".nav-label")) {
         return;
       }
       Array.from(button.childNodes).forEach((node) => {
@@ -165,8 +166,17 @@
     ensureToggle();
   }
 
+  function startObserver() {
+    if (observerStarted || !document.body) {
+      return;
+    }
+    observerStarted = true;
+    const observer = new MutationObserver(() => applyAll());
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     applyAll();
-    setInterval(applyAll, 1000);
+    startObserver();
   });
 }());
