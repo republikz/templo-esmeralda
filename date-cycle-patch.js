@@ -7,7 +7,7 @@
   const DAYS_PER_YEAR = DAYS_PER_MONTH * MONTHS_PER_YEAR;
   let bound = false;
   let syncing = false;
-  let observerStarted = false;
+  let retryCount = 0;
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -86,7 +86,7 @@
       const parts = calendarParts(state.currentDay || 1);
       input.value = String(parts.cycle);
     } catch (error) {
-      // Keep the visible value if the server is briefly unreachable.
+      // Mantém o valor visível se a conexão falhar por alguns instantes.
     } finally {
       syncing = false;
     }
@@ -137,10 +137,7 @@
     const style = document.createElement("style");
     style.id = "dateCyclePatchStyles";
     style.textContent = `
-      .cycle-field-wrap {
-        display: inline-flex;
-        min-width: 96px;
-      }
+      .cycle-field-wrap { display: inline-flex; min-width: 96px; }
       .cycle-field-label {
         display: grid;
         gap: 6px;
@@ -148,34 +145,33 @@
         font-size: .82rem;
         font-weight: 800;
       }
-      #currentCycleInput {
-        width: 96px;
-      }
-      .settings-date-panel .day-control {
-        align-items: end;
-      }
+      #currentCycleInput { width: 96px; }
+      .settings-date-panel .day-control { align-items: end; }
     `;
     document.head.appendChild(style);
   }
 
   function applyAll() {
     injectStyles();
-    ensureCycleField();
+    const input = ensureCycleField();
     bindDateForm();
-    syncCycleValue();
-  }
-
-  function startObserver() {
-    if (observerStarted || !document.body) {
+    if (input) {
+      syncCycleValue();
+      retryCount = 0;
       return;
     }
-    observerStarted = true;
-    const observer = new MutationObserver(() => applyAll());
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (retryCount < 8) {
+      retryCount += 1;
+      setTimeout(applyAll, 300);
+    }
   }
 
   document.addEventListener("DOMContentLoaded", () => {
     applyAll();
-    startObserver();
+    setTimeout(applyAll, 700);
+  });
+  window.addEventListener("hashchange", () => {
+    retryCount = 0;
+    setTimeout(applyAll, 100);
   });
 }());
