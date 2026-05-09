@@ -5,7 +5,6 @@
   const SESSION_KEY = "pf2e-base-manager-session-v1";
   let logoutBound = false;
   let campfireBound = false;
-  let observerStarted = false;
 
   function createId(prefix) {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -124,7 +123,7 @@
       try {
         localStorage.removeItem(SESSION_KEY);
       } catch (error) {
-        // ignore blocked storage
+        // Ignora armazenamento bloqueado.
       }
       notify("Sessão encerrada.");
       window.location.hash = "#dashboard";
@@ -235,19 +234,14 @@
     const style = document.createElement("style");
     style.id = "authCampfireFixPatchStyles";
     style.textContent = `
-      .profile-line {
-        flex-wrap: wrap;
-        gap: 8px 10px;
-      }
+      .profile-line { flex-wrap: wrap; gap: 8px 10px; }
       .logout-button {
         min-height: 28px;
         padding: 4px 10px;
         font-size: .78rem;
         line-height: 1;
       }
-      #newCampfireHeroButton {
-        margin-left: 8px;
-      }
+      #newCampfireHeroButton { margin-left: 8px; }
       @media (max-width: 680px) {
         #newCampfireHeroButton {
           margin-left: 0;
@@ -266,17 +260,9 @@
     bindCampfire();
   }
 
-  function startObserver() {
-    if (observerStarted || !document.body) {
-      return;
-    }
-    observerStarted = true;
-    const observer = new MutationObserver(() => applyAll());
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
-
   document.addEventListener("DOMContentLoaded", () => {
     applyAll();
-    startObserver();
+    setTimeout(applyAll, 600);
   });
+  window.addEventListener("hashchange", () => setTimeout(applyAll, 150));
 }());
