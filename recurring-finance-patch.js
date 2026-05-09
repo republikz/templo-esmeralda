@@ -5,10 +5,10 @@
   const MONTHS = ["Verão", "Outono", "Caos", "Inverno", "Primavera"];
   const DAYS_PER_MONTH = 72;
   const DAYS_PER_YEAR = MONTHS.length * DAYS_PER_MONTH;
-  const AUTO_SETTLE_KEY = "templo-auto-settle-reload";
   let busy = false;
   let renderWrapped = false;
   let lastNextCycleHtml = "";
+  let lastAutoSettleDay = 0;
 
   function monthArticle(month) {
     return month === "Primavera" ? "da" : "do";
@@ -24,10 +24,6 @@
 
   function campaignYear(day) {
     return Math.floor((Math.max(1, Number(day) || 1) - 1) / DAYS_PER_YEAR);
-  }
-
-  function yearStart(day) {
-    return campaignYear(day) * DAYS_PER_YEAR;
   }
 
   function formatCalendarDate(day) {
@@ -106,8 +102,7 @@
     return {
       cycles,
       amountCopper: (Number(source.amountCopper) || 0) * cycles,
-      lastProcessedDayAfter: baseline + cycles * interval,
-      firstDueDay: baseline + interval
+      lastProcessedDayAfter: baseline + cycles * interval
     };
   }
 
@@ -178,9 +173,11 @@
   }
 
   async function autoSettleDueContracts() {
-    if (busy || document.hidden) {
+    const now = Date.now();
+    if (busy || document.hidden || now - lastAutoSettleDay < 2500) {
       return;
     }
+    lastAutoSettleDay = now;
     busy = true;
     try {
       const state = await readState();
@@ -189,11 +186,6 @@
       }
       state.autoProcessRecurring = true;
       await writeState(state);
-      try {
-        sessionStorage.setItem(AUTO_SETTLE_KEY, String(Date.now()));
-      } catch (error) {
-        // ignore storage limitations
-      }
       window.location.reload();
     } catch (error) {
       console.warn("Falha ao processar contratos recorrentes", error);
@@ -271,21 +263,10 @@
     if (!root) {
       return;
     }
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const parent = node.parentElement;
-        if (!parent || parent.closest("script, style, textarea, input")) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        return NodeFilter.FILTER_ACCEPT;
+    root.querySelectorAll("h1, h2, h3, h4, p, span, small, strong, label, button").forEach((element) => {
+      if (element.childElementCount === 0 && element.textContent.includes("do Primavera")) {
+        element.textContent = element.textContent.replace(/\bdo Primavera\b/g, "da Primavera");
       }
-    });
-    const nodes = [];
-    while (walker.nextNode()) {
-      nodes.push(walker.currentNode);
-    }
-    nodes.forEach((node) => {
-      node.nodeValue = node.nodeValue.replace(/\bdo Primavera\b/g, "da Primavera");
     });
   }
 
@@ -340,17 +321,22 @@
     renderWrapped = true;
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+  function applyAll() {
     injectStyles();
     wrapRender();
     decorateCalendar();
     autoSettleDueContracts();
-    setInterval(() => {
-      wrapRender();
-      decorateCalendar();
-      autoSettleDueContracts();
-    }, 5000);
-  });
+  }
 
+  document.addEventListener("DOMContentLoaded", () => {
+    applyAll();
+    setTimeout(applyAll, 700);
+  });
   window.addEventListener("hashchange", () => queueMicrotask(decorateCalendar));
+  window.addEventListener("focus", autoSettleDueContracts);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      autoSettleDueContracts();
+    }
+  });
 }());
