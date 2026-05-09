@@ -7,6 +7,7 @@
   const DAYS_PER_YEAR = DAYS_PER_MONTH * MONTHS_PER_YEAR;
   let bound = false;
   let syncing = false;
+  let observerStarted = false;
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -164,8 +165,17 @@
     syncCycleValue();
   }
 
+  function startObserver() {
+    if (observerStarted || !document.body) {
+      return;
+    }
+    observerStarted = true;
+    const observer = new MutationObserver(() => applyAll());
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     applyAll();
-    setInterval(applyAll, 1500);
+    startObserver();
   });
 }());
