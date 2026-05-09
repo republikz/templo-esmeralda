@@ -7,9 +7,7 @@
     campfireHeroImageUpload: { hiddenId: "campfireHeroImage", previewId: "campfireHeroImagePreview", maxSize: 1100 }
   };
 
-  let observerStarted = false;
   let uploadBound = false;
-  let polishTimer = null;
 
   function injectStyles() {
     if (document.querySelector("#uiCleanupImagePatchStyles")) {
@@ -18,10 +16,7 @@
     const style = document.createElement("style");
     style.id = "uiCleanupImagePatchStyles";
     style.textContent = `
-      .image-preview {
-        min-height: 0;
-        overflow: hidden;
-      }
+      .image-preview { min-height: 0; overflow: hidden; }
       .image-preview img,
       .room-card > img,
       .room-card .room-image img,
@@ -67,12 +62,8 @@
         flex: 0 0 auto;
       }
       .hero-avatar img,
-      .dash-hero-avatar img {
-        transform: scale(1.015);
-      }
-      img[data-image-error="true"] {
-        display: none !important;
-      }
+      .dash-hero-avatar img { transform: scale(1.015); }
+      img[data-image-error="true"] { display: none !important; }
       .upload-polish-note {
         margin-top: 8px;
         color: rgba(255, 247, 224, .62);
@@ -82,13 +73,9 @@
         .room-card > img,
         .room-card .room-image,
         .room-image,
-        .image-preview img {
-          max-height: 220px;
-        }
+        .image-preview img { max-height: 220px; }
         .npc-card .npc-image,
-        .npc-image {
-          min-height: 180px;
-        }
+        .npc-image { min-height: 180px; }
       }
     `;
     document.head.appendChild(style);
@@ -187,7 +174,8 @@
   }
 
   function polishImages(root = document) {
-    root.querySelectorAll("img").forEach((image) => {
+    root.querySelectorAll("img:not([data-polished='true'])").forEach((image) => {
+      image.dataset.polished = "true";
       if (!image.hasAttribute("loading")) {
         image.setAttribute("loading", "lazy");
       }
@@ -221,25 +209,9 @@
     addUploadNotes();
   }
 
-  function schedulePolish(root = document) {
-    clearTimeout(polishTimer);
-    polishTimer = setTimeout(() => applyAll(root), 80);
-  }
-
-  function startObserver() {
-    if (observerStarted || !document.body) {
-      return;
-    }
-    observerStarted = true;
-    const observer = new MutationObserver((mutations) => {
-      const changedRoot = mutations.find((mutation) => mutation.addedNodes.length)?.target || document;
-      schedulePolish(changedRoot instanceof Element ? changedRoot : document);
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
-
   document.addEventListener("DOMContentLoaded", () => {
     applyAll();
-    startObserver();
+    setTimeout(applyAll, 500);
   });
+  window.addEventListener("hashchange", () => setTimeout(applyAll, 150));
 }());
