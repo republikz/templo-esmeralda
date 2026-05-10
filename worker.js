@@ -4,7 +4,6 @@ import { onRequest as handleHealthRequest } from "./functions/api/health.js";
 const PATCH_TAGS = [
   '<script src="/persistence-patch.js?v=3" defer></script>',
   '<script src="/users-sync-patch.js?v=1" defer></script>',
-  '<script src="/dashboard-settings-patch.js?v=4" defer></script>',
   '<script src="/emerald-icon-patch.js?v=4" defer></script>',
   '<script src="/recurring-finance-patch.js?v=2" defer></script>',
   '<script src="/date-cycle-patch.js?v=3" defer></script>',
