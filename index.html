@@ -7,73 +7,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@400;500;700;800&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=10">
-    <style id="room-reading-refinement">
-      .room-card {
-        display: flex;
-        flex-direction: column;
-      }
-
-      .room-card > header {
-        order: 0;
-      }
-
-      .room-card > img,
-      .room-card > .room-image {
-        order: 1;
-      }
-
-      .room-card > p:not(:has(strong)) {
-        order: 2;
-        margin-top: 8px;
-        color: rgba(243, 234, 216, 0.74);
-        font-size: 0.94rem;
-        line-height: 1.5;
-      }
-
-      .room-card > p:has(strong) {
-        order: 3;
-        margin-top: 10px;
-        padding-top: 10px;
-        border-top: 1px solid rgba(231, 197, 123, 0.16);
-      }
-
-      .room-card > p:has(strong) strong {
-        display: inline-flex;
-        align-items: center;
-        margin-right: 6px;
-        padding: 3px 8px;
-        border-radius: 999px;
-        font-size: 0.7rem;
-        font-weight: 900;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      .room-card > p:nth-of-type(1):has(strong),
-      .room-card > p:nth-of-type(1):has(strong) strong {
-        color: #ffe0a0;
-      }
-
-      .room-card > p:nth-of-type(1):has(strong) strong {
-        background: rgba(208, 164, 88, 0.12);
-      }
-
-      .room-card > p:nth-of-type(2):has(strong),
-      .room-card > p:nth-of-type(2):has(strong) strong {
-        color: #d7dbff;
-      }
-
-      .room-card > p:nth-of-type(2):has(strong) strong {
-        background: rgba(132, 140, 255, 0.12);
-      }
-    </style>
+    <link rel="stylesheet" href="styles.css?v=11">
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegação principal">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">🏔️</div>
+          <div class="brand-mark" aria-hidden="true"><img src="templo-esmeralda-icon.png?v=2" alt=""></div>
           <div>
             <p>Templo Esmeralda</p>
             <span>Base Pathfinder 2e</span>
@@ -83,7 +23,7 @@
         <nav class="nav-list">
           <button class="nav-button active" type="button" data-view-target="dashboard">
             <span aria-hidden="true">⌂</span>
-            Painel
+            Início
           </button>
           <button class="nav-button" type="button" data-view-target="rooms">
             <span aria-hidden="true">▣</span>
@@ -111,9 +51,13 @@
           </button>
           <button class="nav-button" type="button" data-view-target="settings" data-admin-only="true">
             <span aria-hidden="true">⚙</span>
-            Dados
+            Configurações
           </button>
         </nav>
+
+        <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Recolher navega??o" aria-pressed="false">
+          <span aria-hidden="true"></span>
+        </button>
 
         <div class="side-status">
           <div>
@@ -135,11 +79,12 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">Gerenciamento da Base</p>
-            <h1 id="viewTitle">Painel</h1>
+            <h1 id="viewTitle">Início</h1>
             <div class="profile-line" aria-live="polite">
               <span class="profile-label">Perfil ativo</span>
               <strong id="activeProfileName">Aguardando acesso</strong>
               <span class="role-badge player" id="activeRoleBadge">Login necessário</span>
+              <button class="button ghost logout-button" id="logoutButton" type="button" hidden>Sair</button>
             </div>
           </div>
           <div class="topbar-actions">
@@ -149,6 +94,7 @@
                 <span class="date-fields">
                   <input id="currentDayInput" name="currentDayInput" type="number" min="1" max="72" step="1" value="1" aria-label="Dia do mês">
                   <select id="currentMonthInput" name="currentMonthInput" aria-label="Mês do calendário"></select>
+                  <input id="currentCycleInput" name="currentCycleInput" type="number" min="1" max="999" step="1" value="1" aria-label="Ciclo atual" title="Ciclo">
                 </span>
               </label>
               <button class="button primary" type="submit">Atualizar</button>
@@ -160,24 +106,7 @@
         <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
         <section class="view active" id="view-dashboard">
-          <div class="metric-grid">
-            <article class="metric">
-              <span>Salas especiais</span>
-              <strong id="metricRooms">0</strong>
-            </article>
-            <article class="metric">
-              <span>NPCs na base</span>
-              <strong id="metricNpcs">0</strong>
-            </article>
-            <article class="metric">
-              <span>Pendências</span>
-              <strong id="metricDue">0 gp</strong>
-            </article>
-            <article class="metric">
-              <span>Itens no mercado</span>
-              <strong id="metricStock">0</strong>
-            </article>
-          </div>
+          <section class="panel dashboard-hero-card" id="dashboardHeroPanel"></section>
 
           <div class="dashboard-grid">
             <section class="panel dashboard-calendar-panel">
@@ -408,8 +337,8 @@
             <section class="panel form-panel">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Ciclos recorrentes</p>
-                  <h2 id="sourceFormTitle">Nova fonte</h2>
+                  <p class="eyebrow">Contratos recorrentes</p>
+                  <h2 id="sourceFormTitle">Novo contrato</h2>
                 </div>
                 <button class="button primary" type="button" id="toggleSourceComposer">Adicionar</button>
               </div>
@@ -474,7 +403,7 @@
                   Ativa
                 </label>
                 <div class="button-row">
-                  <button class="button primary" type="submit">Salvar fonte</button>
+                  <button class="button primary" type="submit">Salvar contrato</button>
                   <button class="button ghost" id="cancelSourceEdit" type="button">Limpar</button>
                 </div>
               </form>
@@ -484,7 +413,7 @@
             <section class="content-column">
               <div class="section-header floating lower">
                 <div>
-                  <p class="eyebrow">Fontes</p>
+                  <p class="eyebrow">Contratos</p>
                   <h2>Construções, salas e NPCs</h2>
                 </div>
               </div>
@@ -495,8 +424,8 @@
           <section class="panel ledger-panel">
             <div class="section-header">
               <div>
-                <p class="eyebrow">Livro-caixa</p>
-                <h2>Lançamentos</h2>
+                <p class="eyebrow">Tesouro</p>
+                <h2>Movimentos do Cofre</h2>
               </div>
             </div>
             <form id="ledgerForm" class="inline-form">
@@ -507,8 +436,8 @@
               </select>
               <input id="ledgerAmount" type="number" min="0" step="0.1" placeholder="gp" required>
               <span class="date-fields inline-date">
-                <input id="ledgerDay" type="number" min="1" max="72" step="1" placeholder="Dia" aria-label="Dia do lançamento">
-                <select id="ledgerMonth" aria-label="Mês do lançamento"></select>
+                <input id="ledgerDay" type="number" min="1" max="72" step="1" placeholder="Dia" aria-label="Dia do movimento">
+                <select id="ledgerMonth" aria-label="Mês do movimento"></select>
               </span>
               <button class="button subtle" type="submit">Adicionar</button>
             </form>
@@ -583,13 +512,6 @@
                     <p class="eyebrow">Ano corrente</p>
                     <h2 id="calendarYearTitle">Calendário</h2>
                   </div>
-                  <div class="button-row compact">
-                    <label class="check-line auto-process">
-                      <input id="autoProcessRecurring" type="checkbox">
-                      Processar automaticamente
-                    </label>
-                    <button class="button primary" id="processRecurringCalendar" type="button">Processar recorrentes</button>
-                  </div>
                 </div>
                 <div class="calendar-summary" id="calendarSummary"></div>
               </section>
@@ -619,7 +541,7 @@
                 <p class="eyebrow">Seu personagem</p>
                 <h2 id="campfireFormTitle">Cadastrar personagem</h2>
               </div>
-              <button class="button primary" type="button" id="toggleCampfireComposer">Adicionar</button>
+              <div class="button-row compact"><button class="button primary" type="button" id="toggleCampfireComposer">Adicionar</button><button class="button subtle" type="button" id="newCampfireHeroButton">Novo personagem</button></div>
             </div>
             <div class="composer-body" id="campfireComposerBody" hidden>
               <form id="campfireHeroForm" class="stacked-form">
@@ -719,7 +641,7 @@
             <div class="section-header">
               <div>
                 <p class="eyebrow">Archives of Nethys</p>
-                <h2>Mercadores da base</h2>
+                <h2>Mercado Esmeralda</h2>
               </div>
               <div class="button-row compact">
                 <button class="button primary" id="generateMarket" type="button">Gerar estoque</button>
@@ -795,12 +717,12 @@
               <div class="section-header">
                 <div>
                   <p class="eyebrow">Base</p>
-                  <h2>Saldo e backup</h2>
+                  <h2>Saldo atual e backup</h2>
                 </div>
               </div>
               <form id="settingsForm" class="stacked-form">
                 <label>
-                  Saldo inicial em gp
+                  Saldo atual em gp
                   <input id="startingBalance" type="number" min="0" step="0.1">
                 </label>
                 <button class="button primary" type="submit">Salvar saldo</button>
@@ -864,7 +786,7 @@
     <div class="auth-overlay" id="authOverlay">
       <section class="auth-card" aria-labelledby="authTitle">
         <div class="brand auth-brand">
-          <div class="brand-mark" aria-hidden="true">🏔</div>
+          <div class="brand-mark" aria-hidden="true"><img src="templo-esmeralda-icon.png?v=2" alt=""></div>
           <div>
             <p>Templo Esmeralda</p>
             <span>Base Pathfinder 2e</span>
@@ -887,6 +809,6 @@
       </section>
     </div>
 
-    <script src="app.js?v=5" defer></script>
+    <script src="app.js?v=12" defer></script>
   </body>
 </html>

@@ -10,14 +10,14 @@ const DAYS_PER_MONTH = 72;
 const DAYS_PER_YEAR = CALENDAR_MONTHS.length * DAYS_PER_MONTH;
 
 const viewTitles = {
-  dashboard: "Painel",
+  dashboard: "Início",
   rooms: "Salas especiais",
   npcs: "NPCs da base",
   finance: "Finanças da base",
   calendar: "Calendário",
   campfire: "Fogueira dos Heróis",
-  market: "Mercado dos mercadores",
-  settings: "Dados da campanha"
+  market: "Mercado Esmeralda",
+  settings: "Configurações"
 };
 
 const campfireGoalCategories = {
@@ -36,6 +36,13 @@ const rarityRank = {
 const userRoles = {
   admin: "admin",
   player: "player"
+};
+
+const CANONICAL_MASTER = {
+  id: "user-gabriel-vieira",
+  name: "Gabriel Vieira",
+  role: userRoles.admin,
+  pin: "310898"
 };
 
 let activeView = "dashboard";
@@ -167,6 +174,12 @@ function setActiveUser(userId) {
 }
 
 function bindEvents() {
+  const sidebarToggle = $("#sidebarToggle");
+  if (sidebarToggle) sidebarToggle.addEventListener("click", toggleSidebar);
+  const logoutButton = $("#logoutButton");
+  if (logoutButton) logoutButton.addEventListener("click", logout);
+  const newHeroButton = $("#newCampfireHeroButton");
+  if (newHeroButton) newHeroButton.addEventListener("click", openNewCampfireHeroForm);
   const refreshRooms = debounce(renderRooms, 80);
   const refreshNpcs = debounce(renderNpcs, 80);
   const refreshMarket = debounce(renderMarket, 80);
@@ -177,11 +190,9 @@ function bindEvents() {
 
   $("#dayForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    const nextDay = getAbsoluteDayFromInputs("currentDayInput", "currentMonthInput", getCampaignYear(state.currentDay));
+    const nextDay = getAbsoluteDayFromInputs("currentDayInput", "currentMonthInput", (Number.parseInt($("#currentCycleInput")?.value, 10) || (getCampaignYear(state.currentDay) + 1)) - 1);
     state.currentDay = nextDay;
-    if (state.autoProcessRecurring) {
-      settleAllDue({ silent: true });
-    }
+    settleAllDue({ silent: true, system: true });
     autoRestockIfDue();
     saveState();
     render();
@@ -224,7 +235,7 @@ function bindEvents() {
   $("#settleAllFinance")?.addEventListener("click", settleAllDue);
   $("#settleAllDashboard")?.addEventListener("click", settleAllDue);
   $("#processRecurringCalendar")?.addEventListener("click", settleAllDue);
-  $("#autoProcessRecurring").addEventListener("change", (event) => {
+  $("#autoProcessRecurring")?.addEventListener("change", (event) => {
     state.autoProcessRecurring = event.target.checked;
     if (state.autoProcessRecurring) {
       settleAllDue({ silent: true });
@@ -591,19 +602,12 @@ function hasCanonicalAdmin(users) {
       && String(user.pin || "") === "310898");
 }
 
+
 function shouldBootstrapFromSeed(remoteState, seedState) {
-  if (!seedState || !hasMeaningfulState(seedState)) {
+  if (hasMeaningfulState(remoteState)) {
     return false;
   }
-  if (!remoteState || !hasMeaningfulState(remoteState)) {
-    return true;
-  }
-  const remoteRevision = Number(remoteState.revision) || 0;
-  const seedRevision = Number(seedState.revision) || 0;
-  if (seedRevision > remoteRevision) {
-    return true;
-  }
-  return !hasCanonicalAdmin(remoteState.users);
+  return Boolean(seedState && hasMeaningfulState(seedState));
 }
 
 async function loadSharedState() {
@@ -621,6 +625,9 @@ async function loadSharedState() {
             saveLocalState(canonical);
             void saveState(canonical);
             return canonical;
+          }
+          if (!hasCanonicalAdmin(JSON.parse(text).users)) {
+            void saveState(remote);
           }
           saveLocalState(remote);
           return remote;
@@ -663,9 +670,10 @@ function loadLocalState() {
 function normalizeState(value) {
   const fallback = freshState();
   const data = value && typeof value === "object" ? value : {};
-  const users = Array.isArray(data.users) && data.users.length
+  const normalizedUsers = Array.isArray(data.users) && data.users.length
     ? data.users.map(normalizeUser)
     : fallback.users;
+  const users = ensureCanonicalUsers(normalizedUsers);
   const activeUserId = users.some((user) => user.id === data.activeUserId)
     ? data.activeUserId
     : null;
@@ -708,6 +716,39 @@ function normalizeUser(user) {
   };
 }
 
+
+function ensureCanonicalUsers(users) {
+  const source = Array.isArray(users) && users.length ? users : [CANONICAL_MASTER];
+  const seen = new Set();
+  const cleaned = [];
+
+  source.map(normalizeUser).forEach((user) => {
+    const nameKey = normalizeAccessName(user.name);
+    if (!nameKey || seen.has(nameKey)) {
+      return;
+    }
+    seen.add(nameKey);
+    cleaned.push(user);
+  });
+
+  const masterNameKey = normalizeAccessName(CANONICAL_MASTER.name);
+  const master = cleaned.find((user) => normalizeAccessName(user.name) === masterNameKey);
+  if (master) {
+    master.name = CANONICAL_MASTER.name;
+    master.role = userRoles.admin;
+    master.pin = CANONICAL_MASTER.pin;
+  } else {
+    cleaned.unshift({
+      ...CANONICAL_MASTER,
+      createdAt: Date.now()
+    });
+  }
+
+  return cleaned.length ? cleaned : [{
+    ...CANONICAL_MASTER,
+    createdAt: Date.now()
+  }];
+}
 function normalizeRoom(room) {
   return {
     id: room.id || createId("room"),
@@ -740,7 +781,7 @@ function normalizeNpc(npc) {
 function normalizeSource(source) {
   return {
     id: source.id || createId("source"),
-    name: source.name || "Fonte sem nome",
+    name: source.name || "Contrato sem nome",
     kind: source.kind || "other",
     type: source.type === "expense" ? "expense" : "income",
     amountCopper: toSafeCopper(source.amountCopper, 0),
@@ -913,14 +954,47 @@ function saveLocalState(nextState) {
   }
 }
 
-function saveState(nextState = state) {
+
+let saveTimer = null;
+let saveInFlight = false;
+let pendingPayload = null;
+let lastSaveFailed = false;
+
+function saveState(nextState = state, options = {}) {
   nextState.revision = (Number(nextState.revision) || 0) + 1;
   nextState.updatedAt = Date.now();
   const payloadState = { ...nextState };
   delete payloadState.activeUserId;
-  const payload = JSON.stringify(payloadState);
   saveLocalState(payloadState);
-  void persistState(payload);
+  pendingPayload = JSON.stringify(payloadState);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushStateSave, options.immediate ? 0 : 350);
+}
+
+async function flushStateSave() {
+  if (saveInFlight || !pendingPayload) {
+    return;
+  }
+  saveInFlight = true;
+  const payload = pendingPayload;
+  pendingPayload = null;
+  const ok = await persistState(payload);
+  saveInFlight = false;
+  if (!ok) {
+    pendingPayload = payload;
+    if (!lastSaveFailed) {
+      showToast("Falha ao salvar no servidor. Vou tentar novamente em instantes.");
+    }
+    lastSaveFailed = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushStateSave, 2500);
+    return;
+  }
+  lastSaveFailed = false;
+  if (pendingPayload) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushStateSave, 120);
+  }
 }
 
 function saveSession() {
@@ -985,6 +1059,8 @@ function applyAuthState() {
   if (authOverlay) {
     authOverlay.hidden = isAuthenticated();
   }
+  const logoutButton = $("#logoutButton");
+  if (logoutButton) logoutButton.hidden = !isAuthenticated();
   if (!isAuthenticated()) {
     const nameInput = $("#accessName");
     if (nameInput && authReady) {
@@ -992,6 +1068,7 @@ function applyAuthState() {
     }
   }
 }
+
 
 async function persistState(payload) {
   try {
@@ -1021,8 +1098,16 @@ function startStateSync() {
     clearInterval(syncTimer);
   }
   syncTimer = setInterval(() => {
-    void syncStateFromServer();
-  }, 5000);
+    if (!document.hidden && !saveInFlight && !pendingPayload) {
+      void syncStateFromServer();
+    }
+  }, 20000);
+  window.addEventListener("focus", () => void syncStateFromServer());
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      void syncStateFromServer();
+    }
+  });
 }
 
 async function syncStateFromServer() {
@@ -1089,6 +1174,8 @@ function applyActiveViewState() {
 function render() {
   applyActiveViewState();
   setDateInputs("currentDayInput", "currentMonthInput", state.currentDay);
+  const cycleInput = $("#currentCycleInput");
+  if (cycleInput) cycleInput.value = getCampaignYear(state.currentDay) + 1;
   $("#viewTitle").textContent = viewTitles[activeView];
   renderPermissions();
   renderSidebar();
@@ -1146,18 +1233,19 @@ function renderPermissions() {
 
   const dayForm = $("#dayForm");
   if (dayForm) {
-    dayForm.hidden = !admin;
-    dayForm.classList.toggle("locked", !admin);
+    const canEditDate = admin && activeView === "settings";
+    dayForm.hidden = !canEditDate;
+    dayForm.classList.toggle("locked", !canEditDate);
     $$("#dayForm input, #dayForm select, #dayForm button").forEach((element) => {
-      if (element.id === "currentDayInput" || element.id === "currentMonthInput" || element.type === "submit") {
-        element.disabled = !admin;
+      if (element.id === "currentDayInput" || element.id === "currentMonthInput" || element.id === "currentCycleInput" || element.type === "submit") {
+        element.disabled = !canEditDate;
       }
     });
   }
   const topbarActions = $(".topbar-actions");
   if (topbarActions) {
-    topbarActions.hidden = !admin;
-    topbarActions.setAttribute("aria-hidden", String(!admin));
+    topbarActions.hidden = true;
+    topbarActions.setAttribute("aria-hidden", "true");
   }
 
   const financeBalancePanel = $("#financeBalancePanel");
@@ -1223,46 +1311,31 @@ function renderPermissions() {
   }
 }
 
+function toggleSidebar() {
+  const collapsed = !document.body.classList.contains("sidebar-collapsed");
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  const button = $("#sidebarToggle");
+  if (button) {
+    button.setAttribute("aria-pressed", String(collapsed));
+    button.setAttribute("aria-label", collapsed ? "Expandir navega??o" : "Recolher navega??o");
+  }
+}
+
+function logout() {
+  sessionUserId = null;
+  state.activeUserId = null;
+  saveSession();
+  applyAuthState();
+  showView("dashboard");
+  render();
+  showToast("Sess?o encerrada.");
+}
+
 function renderSidebar() {
   $("#sidebarDay").textContent = formatCalendarDate(state.currentDay);
   $("#sidebarBalance").textContent = formatCopper(getBalanceCopper());
   const nextMarketDay = getNextMarketDay();
   $("#sidebarMarket").textContent = getMarketStockTotal() ? formatCalendarDate(nextMarketDay) : "Gerar";
-}
-
-function renderDashboard() {
-  $("#metricRooms").textContent = state.rooms.length;
-  $("#metricNpcs").textContent = state.npcs.length;
-  const due = getDueSources();
-  const totals = getDueTotals(due);
-  $("#metricDue").textContent = formatCopper(totals.income - totals.expense);
-  $("#metricStock").textContent = getMarketStockTotal();
-
-  renderDashboardCalendar();
-
-  const marketPreview = getCombinedMarketStock().slice(0, 6);
-  const marketPreviewHtml = marketPreview.length
-    ? marketPreview.map((item) => `
-        <article class="ledger-item">
-          <strong>${escapeHtml(item.name)}</strong>
-          <p>Nível ${item.level} · ${escapeHtml(item.rarity)} · ${formatCopper(item.merchantCopper)}</p>
-        </article>
-      `).join("")
-    : renderEmpty("Mercado vazio", "Gere o estoque dos mercadores.");
-  setHtmlIfChanged($("#dashboardMarketList"), marketPreviewHtml);
-
-  const recent = [...state.ledger]
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 6);
-  const recentHtml = recent.length
-    ? recent.map((entry) => `
-        <article class="ledger-item">
-          <strong>${escapeHtml(entry.name)}</strong>
-          <p>${formatCalendarDate(entry.day)} · <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> · ${formatCopper(entry.amountCopper)}</p>
-        </article>
-      `).join("")
-    : renderEmpty("Sem lançamentos", "O livro-caixa ainda não recebeu registros.");
-  setHtmlIfChanged($("#recentLedger"), recentHtml);
 }
 
 function renderDashboardCalendar() {
@@ -1445,9 +1518,9 @@ function renderRooms() {
             ` : ""}
           </header>
           ${room.image ? `<img class="room-image" src="${escapeAttr(room.image)}" alt="${escapeAttr(room.name)}">` : ""}
-          ${room.bonus ? `<p><strong>Bônus:</strong> ${nl2br(room.bonus)}</p>` : ""}
-          ${room.usage ? `<p><strong>Uso:</strong> ${nl2br(room.usage)}</p>` : ""}
-          ${room.description ? `<p>${nl2br(room.description)}</p>` : ""}
+          ${room.description ? `<p class="room-description-text">${nl2br(room.description)}</p>` : ""}
+          ${room.bonus ? `<p class="room-bonus-text"><strong>Bônus:</strong> ${nl2br(room.bonus)}</p>` : ""}
+          ${room.usage ? `<p class="room-usage-text"><strong>Uso:</strong> ${nl2br(room.usage)}</p>` : ""}
         </article>
       `).join("")
     : renderEmpty("Nenhuma sala encontrada", "A lista de salas não tem resultados para os filtros atuais.");
@@ -1658,7 +1731,7 @@ function renderFinance() {
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
       .map(renderSourceCard)
       .join("")
-    : renderEmpty("Nenhuma fonte", "Adicione construções, salas, NPCs ou despesas recorrentes."));
+    : renderEmpty("Nenhum contrato", "Adicione construções, salas, NPCs ou despesas recorrentes."));
   setHtmlIfChanged($("#sourceList"), sourceHtml);
 
   renderLedgerTable();
@@ -1721,7 +1794,7 @@ function saveSource(event) {
   clearSourceForm();
   toggleComposer("source", false, { silent: true });
   render();
-  showToast("Fonte financeira salva.");
+  showToast("Contrato salvo.");
 }
 
 function clearSourceForm() {
@@ -1733,7 +1806,7 @@ function clearSourceForm() {
   setDateInputs("sourceStartDay", "sourceStartMonth", state.currentDay);
   setDateInputs("sourceLastDay", "sourceLastMonth", Math.max(1, state.currentDay - 30));
   $("#sourceActive").checked = true;
-  $("#sourceFormTitle").textContent = "Nova fonte";
+  $("#sourceFormTitle").textContent = "Novo contrato";
 }
 
 function handleSourceAction(event) {
@@ -1758,16 +1831,16 @@ function handleSourceAction(event) {
     setDateInputs("sourceLastDay", "sourceLastMonth", source.lastProcessedDay || Math.max(1, (source.startDay || state.currentDay) - source.intervalDays));
     $("#sourceActive").checked = source.active;
     $("#sourceNote").value = source.note;
-    $("#sourceFormTitle").textContent = "Editar fonte";
+    $("#sourceFormTitle").textContent = "Editar contrato";
     toggleComposer("source", true, { silent: true });
     showView("finance");
   }
 
-  if (button.dataset.action === "delete-source" && confirm("Remover esta fonte financeira?")) {
+  if (button.dataset.action === "delete-source" && confirm("Remover este contrato?")) {
     state.financeSources = state.financeSources.filter((item) => item.id !== id);
     saveState();
     render();
-    showToast("Fonte removida.");
+    showToast("Contrato removido.");
   }
 }
 
@@ -1783,7 +1856,7 @@ function handleDueAction(event) {
 }
 
 function settleAllDue(options = {}) {
-  if (!isAdmin()) {
+  if (!isAdmin() && !options.system) {
     if (!options.silent) {
       showToast("Somente o Mestre pode processar recorrentes.");
     }
@@ -1796,16 +1869,16 @@ function settleAllDue(options = {}) {
     }
     return;
   }
-  due.forEach((entry) => settleSource(entry.source.id, { silent: true }));
+  due.forEach((entry) => settleSource(entry.source.id, { silent: true, system: options.system === true }));
   saveState();
   render();
   if (!options.silent) {
-    showToast("Recorrentes processadas no livro-caixa.");
+    showToast("Recorrentes processadas nos registros do tesouro.");
   }
 }
 
 function settleSource(sourceId, options = {}) {
-  if (!isAdmin()) {
+  if (!isAdmin() && !options.system) {
     if (!options.silent) {
       showToast("Somente o Mestre pode registrar recorrentes.");
     }
@@ -1818,21 +1891,25 @@ function settleSource(sourceId, options = {}) {
   const due = getDueForSource(source);
   if (!due.cycles) {
     if (!options.silent) {
-      showToast("Esta fonte ainda não tem ciclos pendentes.");
+      showToast("Este contrato ainda não tem ciclos pendentes.");
     }
     return;
   }
 
-  state.ledger.push({
-    id: createId("ledger"),
-    day: state.currentDay,
-    name: `${source.name} (${due.cycles} ciclo${due.cycles > 1 ? "s" : ""})`,
+  const ledgerName = `${source.name} (${due.cycles} ciclo${due.cycles > 1 ? "s" : ""})`;
+  const duplicate = state.ledger.some((entry) => entry.sourceId === source.id && entry.day === state.currentDay && entry.name === ledgerName && Number(entry.amountCopper) === due.amountCopper);
+  if (!duplicate) {
+    state.ledger.push({
+      id: createId("ledger"),
+      day: state.currentDay,
+      name: ledgerName,
     type: source.type,
     amountCopper: due.amountCopper,
     sourceId: source.id,
     note: `${due.cycles} ciclo(s) de ${source.intervalDays} dias.`,
-    createdAt: Date.now()
-  });
+      createdAt: Date.now()
+    });
+  }
 
   source.lastProcessedDay = due.lastProcessedDayAfter;
   source.updatedAt = Date.now();
@@ -1840,7 +1917,7 @@ function settleSource(sourceId, options = {}) {
   if (!options.silent) {
     saveState();
     render();
-    showToast("Pendência registrada no livro-caixa.");
+    showToast("Pendência registrada no tesouro.");
   }
 }
 
@@ -1877,8 +1954,8 @@ function renderSourceCard(source) {
         </div>
         ${isAdmin() ? `
           <div class="card-actions">
-            <button class="icon-button" type="button" title="Editar fonte" data-action="edit-source" data-id="${escapeAttr(source.id)}">✎</button>
-            <button class="icon-button" type="button" title="Remover fonte" data-action="delete-source" data-id="${escapeAttr(source.id)}">×</button>
+            <button class="icon-button" type="button" title="Editar contrato" data-action="edit-source" data-id="${escapeAttr(source.id)}">✎</button>
+            <button class="icon-button" type="button" title="Remover contrato" data-action="delete-source" data-id="${escapeAttr(source.id)}">×</button>
           </div>
         ` : ""}
       </header>
@@ -1917,23 +1994,7 @@ function saveLedgerEntry(event) {
   showToast("Lançamento adicionado.");
 }
 
-function renderLedgerTable() {
-  const rows = [...state.ledger]
-    .sort((a, b) => b.day - a.day || b.createdAt - a.createdAt)
-    .map((entry) => `
-      <tr>
-        <td>${formatCalendarDate(entry.day)}</td>
-        <td>${escapeHtml(entry.name)}</td>
-        <td class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</td>
-        <td>${formatCopper(entry.amountCopper)}</td>
-        <td><button class="icon-button" type="button" title="Remover lançamento" data-action="delete-ledger" data-id="${escapeAttr(entry.id)}">✕</button></td>
-      </tr>
-    `);
 
-  $("#ledgerTable").innerHTML = rows.length
-    ? rows.join("")
-    : `<tr><td colspan="5">Sem lançamentos registrados.</td></tr>`;
-}
 
 function renderLedgerTable() {
   const rows = [...state.ledger]
@@ -1944,13 +2005,13 @@ function renderLedgerTable() {
         <td>${escapeHtml(entry.name)}</td>
         <td class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</td>
         <td>${formatCopper(entry.amountCopper)}</td>
-        <td><button class="icon-button" type="button" title="Remover lançamento" data-action="delete-ledger" data-id="${escapeAttr(entry.id)}">✕</button></td>
+        <td><button class="icon-button" type="button" title="Remover movimento" data-action="delete-ledger" data-id="${escapeAttr(entry.id)}">✕</button></td>
       </tr>
     `);
 
   const html = getCachedValue(renderCache.ledgerRowsHtml, getCacheKey(state.revision, rows.length), () => rows.length
     ? rows.join("")
-    : `<tr><td colspan="5">Sem lançamentos registrados.</td></tr>`);
+    : `<tr><td colspan="5">Sem movimentos registrados.</td></tr>`);
   setHtmlIfChanged($("#ledgerTable"), html);
 }
 
@@ -1959,7 +2020,7 @@ function handleLedgerAction(event) {
   if (!button) {
     return;
   }
-  if (confirm("Remover este lançamento?")) {
+  if (confirm("Remover este movimento?")) {
     state.ledger = state.ledger.filter((entry) => entry.id !== button.dataset.id);
     saveState();
     render();
@@ -1971,7 +2032,9 @@ function renderCalendar() {
   if (!$("#calendarMonths")) {
     return;
   }
-  $("#autoProcessRecurring").checked = state.autoProcessRecurring === true;
+  const autoRecurring = $("#autoProcessRecurring");
+  if (autoRecurring) autoRecurring.checked = true;
+  state.autoProcessRecurring = true;
   $("#calendarYearTitle").textContent = `Calendário do ciclo ${getCampaignYear(state.currentDay) + 1}`;
   const entries = getCalendarEntries();
   const incomeTotal = entries
@@ -2009,6 +2072,27 @@ function renderCalendar() {
     })
     .join(""));
   setHtmlIfChanged($("#calendarMonths"), monthsHtml);
+  renderNextCycleCalendar();
+}
+
+function renderNextCycleCalendar() {
+  const calendarMonths = $("#calendarMonths");
+  if (!calendarMonths) return;
+  let panel = $("#nextCycleCalendarPanel");
+  if (!panel) {
+    panel = document.createElement("section");
+    panel.id = "nextCycleCalendarPanel";
+    panel.className = "panel next-cycle-panel";
+    calendarMonths.insertAdjacentElement("afterend", panel);
+  }
+  const nextYear = getCampaignYear(state.currentDay) + 1;
+  const rangeStart = nextYear * DAYS_PER_YEAR + 1;
+  const rangeEnd = rangeStart + DAYS_PER_YEAR - 1;
+  const entries = getRecurringCalendarEntries(rangeStart, rangeEnd);
+  const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.amountCopper, 0);
+  const expense = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + entry.amountCopper, 0);
+  const html = `<div class="section-header"><div><p class="eyebrow">Pr?ximo ciclo</p><h2>Ciclo ${nextYear + 1}</h2></div><div class="chip-row"><span class="chip income">Receitas: ${formatCopper(income)}</span><span class="chip expense">Despesas: ${formatCopper(expense)}</span><span class="chip">${entries.length} registro${entries.length === 1 ? "" : "s"}</span></div></div><div class="next-cycle-list">${entries.length ? entries.map(renderCalendarEntry).join("") : renderEmpty("Sem contratos no pr?ximo ciclo", "Os contratos ativos aparecer?o aqui quando tiverem datas previstas.")}</div>`;
+  setHtmlIfChanged(panel, html);
 }
 
 function getCalendarEntries() {
@@ -2027,7 +2111,7 @@ function getCalendarEntries() {
         title: entry.name,
         type: entry.type,
         amountCopper: entry.amountCopper,
-        description: "Registrado no livro-caixa.",
+        description: "Registrado no tesouro.",
         status: "registered"
       }));
     const eventEntries = state.events
@@ -2269,15 +2353,7 @@ function renderMarketSettings() {
   });
 }
 
-function renderMarketCategoryOptions() {
-  const select = $("#marketCategoryFilter");
-  const current = select.value || "all";
-  const categories = unique(getCombinedMarketStock().map((item) => item.category).filter(Boolean)).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const key = getCacheKey(state.revision, categories.join("\u0001"));
-  const html = getCachedValue(renderCache.marketCategoryHtml, key, () => `<option value="all">Todas as categorias</option>${categories.map((category) => `<option value="${escapeAttr(category)}">${escapeHtml(category)}</option>`).join("")}`);
-  select.innerHTML = html;
-  select.value = categories.includes(current) ? current : "all";
-}
+
 
 function renderMarketCategoryOptions() {
   const select = $("#marketCategoryFilter");
@@ -2593,7 +2669,40 @@ function populateStaticForms() {
 }
 
 function renderSettings() {
+  const repairedUsers = ensureCanonicalUsers(state.users);
+  if (JSON.stringify(repairedUsers) !== JSON.stringify(state.users)) {
+    state.users = repairedUsers;
+    saveState();
+  }
+  moveDateControlToSettings();
   $("#startingBalance").value = copperToGpInput(state.startingBalanceCopper);
+  renderUsers();
+}
+
+function moveDateControlToSettings() {
+  const settings = $("#view-settings");
+  const dayForm = $("#dayForm");
+  if (!settings || !dayForm) {
+    return;
+  }
+  let panel = $("#settingsDatePanel");
+  if (!panel) {
+    panel = document.createElement("section");
+    panel.id = "settingsDatePanel";
+    panel.className = "panel settings-date-panel";
+    panel.innerHTML = `
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">Calendário da campanha</p>
+          <h2>Data atual do RPG</h2>
+        </div>
+      </div>
+    `;
+    settings.insertBefore(panel, settings.firstElementChild);
+  }
+  if (!panel.contains(dayForm)) {
+    panel.appendChild(dayForm);
+  }
 }
 
 function saveFinanceBalance(event) {
@@ -2614,6 +2723,7 @@ function handleAccessSubmit(event) {
     return;
   }
 
+  state.users = ensureCanonicalUsers(state.users);
   const normalizedName = normalizeAccessName(name);
   const existing = state.users.find((user) => normalizeAccessName(user.name) === normalizedName);
   if (existing) {
@@ -2652,7 +2762,8 @@ function renderUsers() {
   if (!list) {
     return;
   }
-  const users = [...(Array.isArray(state.users) && state.users.length ? state.users : freshState().users)].sort((a, b) => {
+  state.users = ensureCanonicalUsers(state.users);
+  const users = [...state.users].sort((a, b) => {
     if (a.role === b.role) {
       return a.name.localeCompare(b.name, "pt-BR");
     }
@@ -2853,9 +2964,14 @@ function getCalendarParts(day) {
   return { dayInYear, monthIndex, dayOfMonth };
 }
 
+function getMonthArticle(month) {
+  return month === "Primavera" ? "da" : "do";
+}
+
 function formatCalendarDate(day) {
   const parts = getCalendarParts(day);
-  return `${String(parts.dayOfMonth).padStart(2, "0")} do ${CALENDAR_MONTHS[parts.monthIndex]}`;
+  const month = CALENDAR_MONTHS[parts.monthIndex];
+  return `${String(parts.dayOfMonth).padStart(2, "0")} ${getMonthArticle(month)} ${month}`;
 }
 
 function setDateInputs(dayInputId, monthInputId, absoluteDay) {
@@ -2914,9 +3030,13 @@ function readImageAsDataUrl(file) {
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(image.width * scale));
         canvas.height = Math.max(1, Math.round(image.height * scale));
-        const context = canvas.getContext("2d");
+        const context = canvas.getContext("2d", { alpha: false });
+        context.fillStyle = "#10130f";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.86));
+        resolve(canvas.toDataURL("image/jpeg", 0.84));
       };
       image.src = reader.result;
     };
@@ -3068,38 +3188,35 @@ function showToast(message) {
 }
 
 function renderDashboard() {
-  $("#metricRooms").textContent = state.rooms.length;
-  $("#metricNpcs").textContent = state.npcs.length;
-  const due = getDueSources();
-  const totals = getDueTotals(due);
-  $("#metricDue").textContent = formatCopper(totals.income - totals.expense);
-  $("#metricStock").textContent = getMarketStockTotal();
-
+  renderDashboardHero();
   renderDashboardCalendar();
-
-  const marketPreview = getCombinedMarketStock().slice(0, 6);
-  const marketPreviewHtml = getCachedValue(renderCache.dashboardMarketHtml, getCacheKey(state.revision, marketPreview.length, "dashboard-market"), () => marketPreview.length
-    ? marketPreview.map((item) => `
-        <article class="ledger-item">
-          <strong>${escapeHtml(item.name)}</strong>
-          <p>Nível ${item.level} · ${escapeHtml(item.rarity)} · ${formatCopper(item.merchantCopper)}</p>
-        </article>
-      `).join("")
-    : renderEmpty("Mercado vazio", "Gere o estoque dos mercadores."));
-  setHtmlIfChanged($("#dashboardMarketList"), marketPreviewHtml);
-
-  const recent = [...state.ledger]
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 6);
+  const totalItems = getMarketStockTotal();
+  const nextMarketDay = getNextMarketDay();
+  const marketHtml = [`<article class="ledger-item market-overview-card"><span class="eyebrow">Itens no mercado</span><strong>${totalItems}</strong></article>`,
+    `<article class="ledger-item market-overview-card"><span class="eyebrow">Pr?xima atualiza??o</span><strong>${formatCalendarDate(nextMarketDay)}</strong></article>`].join("");
+  setHtmlIfChanged($("#dashboardMarketList"), marketHtml);
+  const recent = [...state.ledger].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
   const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(state.revision, recent.length, "dashboard-ledger"), () => recent.length
-    ? recent.map((entry) => `
-        <article class="ledger-item">
-          <strong>${escapeHtml(entry.name)}</strong>
-          <p>${formatCalendarDate(entry.day)} · <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> · ${formatCopper(entry.amountCopper)}</p>
-        </article>
-      `).join("")
-    : renderEmpty("Sem lançamentos", "O livro-caixa ainda não recebeu registros."));
+    ? recent.map((entry) => `<article class="ledger-item"><strong>${escapeHtml(entry.name)}</strong><p>${formatCalendarDate(entry.day)} ? <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> ? ${formatCopper(entry.amountCopper)}</p></article>`).join("")
+    : renderEmpty("Sem movimentos", "Os registros do tesouro ainda n?o receberam movimentos."));
   setHtmlIfChanged($("#recentLedger"), recentHtml);
+}
+
+function renderDashboardHero() {
+  const panel = $("#dashboardHeroPanel");
+  if (!panel) return;
+  const hero = getCampfireHeroForUser(getActiveUserId());
+  if (!hero) {
+    setHtmlIfChanged(panel, renderEmpty("Seu her?i", "Nenhum personagem est? vinculado a este perfil."));
+    return;
+  }
+  const visibleGoals = hero.goals.filter((goal) => canSeeCampfireSecrets(hero) || !goal.secret);
+  const goalsHtml = ["short", "medium", "long"].map((category) => {
+    const goal = visibleGoals.find((item) => item.category === category);
+    return `<article class="dash-goal goal-${category}"><strong>${escapeHtml(campfireGoalCategories[category])}</strong><p>${goal ? escapeHtml(goal.text) : "Sem objetivo vis?vel."}${goal?.secret ? " <em>Secreto</em>" : ""}</p></article>`;
+  }).join("");
+  const html = `<div class="dashboard-hero-copy"><p class="eyebrow">Seu her?i</p><h2>${escapeHtml(hero.characterName)}</h2></div><div class="dashboard-hero-content"><div class="dash-hero-avatar ${hero.image ? "has-image" : ""}">${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}</div><div class="dash-goal-grid">${goalsHtml}</div></div>`;
+  setHtmlIfChanged(panel, html);
 }
 
 function getUserById(userId) {
@@ -3395,6 +3512,13 @@ function renderCampfireHeroCard(hero) {
   `;
 }
 
+function openNewCampfireHeroForm() {
+  toggleComposer("campfire", true, { silent: true });
+  clearCampfireHeroForm();
+  const body = $("#campfireComposerBody");
+  if (body) body.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function loadCampfireHero(heroId) {
   const hero = getCampfireHeroById(heroId);
   if (!hero || !canManageCampfireHero(hero)) {
@@ -3429,7 +3553,7 @@ function saveCampfireHero(event) {
   const selectedId = $("#campfireHeroId").value;
   const selectedHero = selectedId ? getCampfireHeroById(selectedId) : null;
   const ownHero = getCampfireHeroForUser(getActiveUserId());
-  const currentHero = selectedHero && canManageCampfireHero(selectedHero) ? selectedHero : ownHero;
+  const currentHero = selectedHero && canManageCampfireHero(selectedHero) ? selectedHero : (isAdmin() ? null : ownHero);
   if (selectedHero && !canManageCampfireHero(selectedHero)) {
     showToast("Você só pode editar o seu próprio personagem.");
     return;
@@ -3458,17 +3582,15 @@ function saveCampfireHero(event) {
 }
 
 function clearCampfireHeroForm() {
-  const ownHero = getCampfireHeroForUser(getActiveUserId());
+  const ownHero = isAdmin() ? null : getCampfireHeroForUser(getActiveUserId());
   $("#campfireHeroId").value = ownHero?.id || "";
   $("#campfireCharacterName").value = ownHero?.characterName || "";
   $("#campfireHeroImage").value = ownHero?.image || "";
   const ownerSelect = $("#campfireHeroOwnerUserId");
-  if (ownerSelect) {
-    ownerSelect.value = ownHero?.ownerUserId || "";
-  }
+  if (ownerSelect) ownerSelect.value = ownHero?.ownerUserId || "";
   $("#campfireHeroImageUpload").value = "";
   renderImagePreview("campfireHeroImagePreview", ownHero?.image || "");
-  $("#campfireFormTitle").textContent = ownHero ? "Personagem da fogueira" : "Cadastrar personagem";
+  $("#campfireFormTitle").textContent = ownHero ? "Personagem da fogueira" : "Novo personagem";
   clearCampfireGoalForm({ silent: true });
   renderCampfire();
 }
