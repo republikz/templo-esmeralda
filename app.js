@@ -3198,7 +3198,7 @@ function renderDashboard() {
   const recent = [...state.ledger].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
   const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(state.revision, recent.length, "dashboard-ledger"), () => recent.length
     ? recent.map((entry) => `<article class="ledger-item"><strong>${escapeHtml(entry.name)}</strong><p>${formatCalendarDate(entry.day)} ? <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> ? ${formatCopper(entry.amountCopper)}</p></article>`).join("")
-    : renderEmpty("Sem movimentos", "Os registros do tesouro ainda n?o receberam movimentos."));
+    : renderEmpty("Sem movimentos", "Os registros do tesouro ainda não receberam movimentos."));
   setHtmlIfChanged($("#recentLedger"), recentHtml);
 }
 
@@ -3207,7 +3207,7 @@ function renderDashboardHero() {
   if (!panel) return;
   const hero = getCampfireHeroForUser(getActiveUserId());
   if (!hero) {
-    setHtmlIfChanged(panel, renderEmpty("Seu her?i", "Nenhum personagem est? vinculado a este perfil."));
+    setHtmlIfChanged(panel, renderEmpty("Seu herói", "Nenhum personagem está vinculado a este perfil."));
     return;
   }
   const visibleGoals = hero.goals.filter((goal) => canSeeCampfireSecrets(hero) || !goal.secret);
@@ -3215,7 +3215,7 @@ function renderDashboardHero() {
     const goal = visibleGoals.find((item) => item.category === category);
     return `<article class="dash-goal goal-${category}"><strong>${escapeHtml(campfireGoalCategories[category])}</strong><p>${goal ? escapeHtml(goal.text) : "Sem objetivo vis?vel."}${goal?.secret ? " <em>Secreto</em>" : ""}</p></article>`;
   }).join("");
-  const html = `<div class="dashboard-hero-copy"><p class="eyebrow">Seu her?i</p><h2>${escapeHtml(hero.characterName)}</h2></div><div class="dashboard-hero-content"><div class="dash-hero-avatar ${hero.image ? "has-image" : ""}">${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}</div><div class="dash-goal-grid">${goalsHtml}</div></div>`;
+  const html = `<div class="dashboard-hero-copy"><p class="eyebrow">Seu herói</p><h2>${escapeHtml(hero.characterName)}</h2></div><div class="dashboard-hero-content"><div class="dash-hero-avatar ${hero.image ? "has-image" : ""}">${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}</div><div class="dash-goal-grid">${goalsHtml}</div></div>`;
   setHtmlIfChanged(panel, html);
 }
 
