@@ -731,6 +731,12 @@ fieldset input {
   padding: 14px;
 }
 
+.room-card {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
 .room-card header,
 .source-card header,
 .market-card header {
@@ -765,6 +771,9 @@ fieldset input {
   color: rgba(243, 234, 216, 0.74);
   font-size: 0.94rem;
   line-height: 1.5;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .room-bonus-text,
@@ -772,6 +781,9 @@ fieldset input {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid rgba(231, 197, 123, 0.16);
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .room-bonus-text {
@@ -878,13 +890,14 @@ fieldset input {
 }
 
 .npc-card {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .npc-card-body {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
-  min-height: 164px;
+  min-height: 0;
+  align-items: stretch;
 }
 
 .npc-portrait {
@@ -910,6 +923,9 @@ fieldset input {
 .npc-info {
   min-width: 0;
   padding: 14px;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .npc-meta {
@@ -995,6 +1011,10 @@ th {
 td:last-child,
 th:last-child {
   text-align: right;
+}
+
+#ledgerTable td[colspan] {
+  text-align: center;
 }
 
 .market-controls {
@@ -1230,6 +1250,24 @@ fieldset label {
   .npc-portrait,
   .npc-portrait img {
     min-height: 190px;
+  }
+
+  .room-grid,
+  .npc-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .room-card,
+  .npc-card,
+  .npc-card-body,
+  .npc-info {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .room-image {
+    height: 150px;
   }
 }
 
@@ -2810,28 +2848,16 @@ legend {
 }
 
 .sidebar-toggle span {
-  width: 18px;
-  height: 18px;
-  background: currentColor;
-  -webkit-mask: var(--icon-room) center / contain no-repeat;
-  mask: var(--icon-room) center / contain no-repeat;
+  width: 12px;
+  height: 12px;
+  border-top: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: translateX(2px) rotate(-45deg);
+  transition: transform 160ms ease;
 }
 
 body.sidebar-collapsed {
   --sidebar: 88px;
-}
-
-body.sidebar-collapsed .brand > div:not(.brand-mark),
-body.sidebar-collapsed .nav-button:not(.active),
-body.sidebar-collapsed .nav-button:not(.active) span + text,
-body.sidebar-collapsed .side-status span,
-body.sidebar-collapsed .side-status strong {
-  overflow: hidden;
-}
-
-body.sidebar-collapsed .brand > div:not(.brand-mark),
-body.sidebar-collapsed .nav-button {
-  font-size: 0;
 }
 
 body.sidebar-collapsed .sidebar {
@@ -2839,9 +2865,22 @@ body.sidebar-collapsed .sidebar {
   padding-inline: 14px;
 }
 
+body.sidebar-collapsed .brand {
+  justify-content: center;
+}
+
+body.sidebar-collapsed .brand > div:not(.brand-mark) {
+  display: none;
+}
+
+body.sidebar-collapsed .nav-list {
+  width: 100%;
+}
+
 body.sidebar-collapsed .nav-button {
   justify-content: center;
   padding-inline: 10px;
+  font-size: 0;
 }
 
 body.sidebar-collapsed .nav-button > span[aria-hidden="true"] {
@@ -2850,6 +2889,10 @@ body.sidebar-collapsed .nav-button > span[aria-hidden="true"] {
 
 body.sidebar-collapsed .side-status {
   display: none;
+}
+
+body.sidebar-collapsed .sidebar-toggle span {
+  transform: translateX(-2px) rotate(135deg);
 }
 
 #dayForm .date-fields {
