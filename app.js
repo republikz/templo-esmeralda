@@ -2091,7 +2091,7 @@ function renderNextCycleCalendar() {
   const entries = getRecurringCalendarEntries(rangeStart, rangeEnd);
   const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.amountCopper, 0);
   const expense = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + entry.amountCopper, 0);
-  const html = `<div class="section-header"><div><p class="eyebrow">Pr?ximo ciclo</p><h2>Ciclo ${nextYear + 1}</h2></div><div class="chip-row"><span class="chip income">Receitas: ${formatCopper(income)}</span><span class="chip expense">Despesas: ${formatCopper(expense)}</span><span class="chip">${entries.length} registro${entries.length === 1 ? "" : "s"}</span></div></div><div class="next-cycle-list">${entries.length ? entries.map(renderCalendarEntry).join("") : renderEmpty("Sem contratos no pr?ximo ciclo", "Os contratos ativos aparecer?o aqui quando tiverem datas previstas.")}</div>`;
+  const html = `<div class="section-header"><div><p class="eyebrow">Próximo ciclo</p><h2>Ciclo ${nextYear + 1}</h2></div><div class="chip-row"><span class="chip income">Receitas: ${formatCopper(income)}</span><span class="chip expense">Despesas: ${formatCopper(expense)}</span><span class="chip">${entries.length} registro${entries.length === 1 ? "" : "s"}</span></div></div><div class="next-cycle-list">${entries.length ? entries.map(renderCalendarEntry).join("") : renderEmpty("Sem contratos no próximo ciclo", "Os contratos ativos aparecerão aqui quando tiverem datas previstas.")}</div>`;
   setHtmlIfChanged(panel, html);
 }
 
@@ -3193,7 +3193,7 @@ function renderDashboard() {
   const totalItems = getMarketStockTotal();
   const nextMarketDay = getNextMarketDay();
   const marketHtml = [`<article class="ledger-item market-overview-card"><span class="eyebrow">Itens no mercado</span><strong>${totalItems}</strong></article>`,
-    `<article class="ledger-item market-overview-card"><span class="eyebrow">Pr?xima atualiza??o</span><strong>${formatCalendarDate(nextMarketDay)}</strong></article>`].join("");
+    `<article class="ledger-item market-overview-card"><span class="eyebrow">Próxima atualização</span><strong>${formatCalendarDate(nextMarketDay)}</strong></article>`].join("");
   setHtmlIfChanged($("#dashboardMarketList"), marketHtml);
   const recent = [...state.ledger].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
   const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(state.revision, recent.length, "dashboard-ledger"), () => recent.length
