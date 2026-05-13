@@ -613,6 +613,7 @@ function shouldBootstrapFromSeed(remoteState, seedState) {
 async function loadSharedState() {
   const fallback = loadLocalState();
   const seed = await loadSeedState();
+  console.log('STATE_API_URL',STATE_API_URL)
   try {
     const response = await fetch(STATE_API_URL, { cache: "no-store" });
     if (response.ok) {
