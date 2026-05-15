@@ -1,14 +1,6 @@
 const DEFAULT_TABLE = "campaign_state";
 const DEFAULT_BUCKET = "campaign-assets";
 const DEFAULT_ROW_ID = "main";
-const REMOTE_REVISION_FLOOR = 1000000;
-
-const CANONICAL_MASTER = {
-  id: "user-gabriel-vieira",
-  name: "Gabriel Vieira",
-  role: "admin",
-  pin: "310898"
-};
 
 function getConfig(env) {
   const supabaseUrl = String(env.SUPABASE_URL || "").replace(/\/+$/, "");
@@ -32,102 +24,6 @@ function jsonResponse(body, init = {}) {
 
 function errorResponse(message, status = 500) {
   return jsonResponse(JSON.stringify({ error: message }), { status });
-}
-
-function hasSharedState(value) {
-  return Boolean(value)
-    && Array.isArray(value.rooms)
-    && Array.isArray(value.npcs)
-    && Array.isArray(value.financeSources);
-}
-
-function normalizeAccessName(value) {
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase("pt-BR");
-}
-
-function normalizeUser(user) {
-  const role = user?.role === "admin" ? "admin" : "player";
-  return {
-    id: String(user?.id || crypto.randomUUID()),
-    name: String(user?.name || (role === "admin" ? CANONICAL_MASTER.name : "Jogador")).trim(),
-    role,
-    pin: String(role === "admin" ? (user?.pin || CANONICAL_MASTER.pin) : (user?.pin || "")),
-    createdAt: Number(user?.createdAt) || Date.now()
-  };
-}
-
-function ensureCanonicalUsers(state) {
-  if (!state || typeof state !== "object") {
-    return { state: state || {}, changed: false };
-  }
-
-  const originalUsers = Array.isArray(state.users) ? state.users : [];
-  const seen = new Set();
-  const users = [];
-  let changed = !Array.isArray(state.users);
-
-  originalUsers.map(normalizeUser).forEach((user) => {
-    const key = normalizeAccessName(user.name);
-    if (!key || seen.has(key)) {
-      changed = true;
-      return;
-    }
-    seen.add(key);
-    users.push(user);
-  });
-
-  const masterKey = normalizeAccessName(CANONICAL_MASTER.name);
-  const master = users.find((user) => normalizeAccessName(user.name) === masterKey);
-  if (master) {
-    if (master.name !== CANONICAL_MASTER.name || master.role !== CANONICAL_MASTER.role || master.pin !== CANONICAL_MASTER.pin) {
-      changed = true;
-    }
-    master.name = CANONICAL_MASTER.name;
-    master.role = CANONICAL_MASTER.role;
-    master.pin = CANONICAL_MASTER.pin;
-  } else {
-    users.unshift({ ...CANONICAL_MASTER, createdAt: Date.now() });
-    changed = true;
-  }
-
-  if (users.length !== originalUsers.length) {
-    changed = true;
-  }
-
-  return {
-    state: {
-      ...state,
-      users,
-      revision: Math.max(
-        Number(state.revision) || 0,
-        REMOTE_REVISION_FLOOR
-      ) + (changed ? 1 : 0),
-      updatedAt: changed ? Date.now() : state.updatedAt
-    },
-    changed
-  };
-}
-
-function normalizeRemoteRevision(row) {
-  const state = row?.state_json;
-  if (!state || typeof state !== "object") {
-    return { state: state || {}, changed: false };
-  }
-  const repaired = ensureCanonicalUsers(state);
-  return {
-    state: {
-      ...repaired.state,
-      revision: Math.max(
-        Number(repaired.state.revision) || 0,
-        Number(row.revision) || 0,
-        REMOTE_REVISION_FLOOR
-      )
-    },
-    changed: repaired.changed
-  };
 }
 
 function parseDataUrl(value) {
@@ -163,6 +59,10 @@ function bytesFromBase64(base64) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
+}
+
+function isRemoteUrl(value) {
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim());
 }
 
 async function uploadDataUrl({ env, dataUrl, prefix, entityId, field, revision }) {
@@ -257,9 +157,98 @@ async function hydrateStateImages(state, env) {
     }
   }
 
+  if (nextState.journey && Array.isArray(nextState.journey.entries)) {
+    for (const entry of nextState.journey.entries) {
+      if (entry && typeof entry.image === "string" && parseDataUrl(entry.image)) {
+        entry.image = await uploadDataUrl({
+          env,
+          dataUrl: entry.image,
+          prefix: "journey",
+          entityId: entry.id || crypto.randomUUID(),
+          field: "entry",
+          revision
+        });
+      }
+    }
+  }
+
   return nextState;
 }
 
+
+const CANONICAL_MASTER = {
+  id: "user-gabriel-vieira",
+  name: "Gabriel Vieira",
+  role: "admin",
+  pin: "310898"
+};
+
+function normalizeAccessName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("pt-BR");
+}
+
+function normalizeUser(user) {
+  const role = user?.role === "admin" ? "admin" : "player";
+  return {
+    id: String(user?.id || crypto.randomUUID()),
+    name: String(user?.name || (role === "admin" ? CANONICAL_MASTER.name : "Jogador")).trim(),
+    role,
+    pin: String(role === "admin" ? (user?.pin || CANONICAL_MASTER.pin) : (user?.pin || "")),
+    createdAt: Number(user?.createdAt) || Date.now()
+  };
+}
+
+function ensureCanonicalUsers(state) {
+  if (!state || typeof state !== "object") {
+    return { state, changed: false };
+  }
+
+  const originalUsers = Array.isArray(state.users) ? state.users : [];
+  const seen = new Set();
+  const users = [];
+  let changed = !Array.isArray(state.users);
+
+  originalUsers.map(normalizeUser).forEach((user) => {
+    const key = normalizeAccessName(user.name);
+    if (!key || seen.has(key)) {
+      changed = true;
+      return;
+    }
+    seen.add(key);
+    users.push(user);
+  });
+
+  const masterKey = normalizeAccessName(CANONICAL_MASTER.name);
+  const master = users.find((user) => normalizeAccessName(user.name) === masterKey);
+  if (master) {
+    if (master.name !== CANONICAL_MASTER.name || master.role !== CANONICAL_MASTER.role || master.pin !== CANONICAL_MASTER.pin) {
+      changed = true;
+    }
+    master.name = CANONICAL_MASTER.name;
+    master.role = CANONICAL_MASTER.role;
+    master.pin = CANONICAL_MASTER.pin;
+  } else {
+    users.unshift({ ...CANONICAL_MASTER, createdAt: Date.now() });
+    changed = true;
+  }
+
+  if (users.length !== originalUsers.length) {
+    changed = true;
+  }
+
+  return {
+    state: {
+      ...state,
+      users,
+      revision: changed ? (Number(state.revision) || 0) + 1 : state.revision,
+      updatedAt: changed ? Date.now() : state.updatedAt
+    },
+    changed
+  };
+}
 async function readStateRow(env) {
   const config = getConfig(env);
   if (!config.supabaseUrl || !config.serviceKey) {
@@ -328,11 +317,11 @@ export async function onRequest({ request, env }) {
           }
         });
       }
-      const normalized = normalizeRemoteRevision(row);
-      if (normalized.changed) {
-        await writeStateRow(env, normalized.state);
+      const repaired = ensureCanonicalUsers(row.state_json);
+      if (repaired.changed) {
+        await writeStateRow(env, repaired.state);
       }
-      return jsonResponse(JSON.stringify(normalized.state), { status: 200 });
+      return jsonResponse(JSON.stringify(repaired.state), { status: 200 });
     }
 
     if (request.method === "PUT") {
