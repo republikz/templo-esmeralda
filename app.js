@@ -16,6 +16,7 @@ const viewTitles = {
   finance: "Finanças da base",
   calendar: "Calendário",
   campfire: "Fogueira dos Heróis",
+  journey: "Jornada",
   market: "Mercado Esmeralda",
   settings: "Configurações"
 };
@@ -55,6 +56,7 @@ let toastTimer = null;
 let syncTimer = null;
 let syncInFlight = false;
 let lastPermissionKey = "";
+let selectedJourneyEntryId = "";
 
 const renderCache = {
   calendarEntries: { key: "", value: [] },
@@ -71,6 +73,8 @@ const renderCache = {
   calendarMonthsHtml: { key: "", value: "" },
   campfireBoardHtml: { key: "", value: "" },
   campfireGalleryHtml: { key: "", value: "" },
+  journeyGalleryHtml: { key: "", value: "" },
+  journeyDetailHtml: { key: "", value: "" },
   marketCategoryHtml: { key: "", value: "" },
   marketStatusHtml: { key: "", value: "" },
   marketSectionHtml: {
@@ -299,6 +303,20 @@ function bindEvents() {
   $("#campfireOwnGoals")?.addEventListener("click", handleCampfireAction);
   $("#campfireGallery")?.addEventListener("click", handleCampfireAction);
 
+  $("#journeyForm")?.addEventListener("submit", saveJourneyEntry);
+  $("#toggleJourneyComposer")?.addEventListener("click", () => toggleComposer("journey"));
+  $("#cancelJourneyEdit")?.addEventListener("click", () => {
+    clearJourneyForm();
+    toggleComposer("journey", false);
+  });
+  $("#journeyImageUpload")?.addEventListener("change", (event) => handleImageUpload(event, "journeyImage", "journeyImagePreview"));
+  $("#clearJourneyImage")?.addEventListener("click", clearJourneyImage);
+  $("#journeySearch")?.addEventListener("input", debounce(renderJourney, 80));
+  $("#journeySort")?.addEventListener("change", renderJourney);
+  $("#journeyGallery")?.addEventListener("click", handleJourneyAction);
+  $("#journeyDetail")?.addEventListener("click", handleJourneyAction);
+  $("#journeyDetail")?.addEventListener("submit", handleJourneyCommentSubmit);
+
   $("#settingsForm").addEventListener("submit", saveSettings);
   $("#exportData").addEventListener("click", exportData);
   $("#importForm").addEventListener("submit", importData);
@@ -327,7 +345,7 @@ function initializeDateSelects() {
 }
 
 function initializeComposerState() {
-  ["room", "npc", "source", "event", "campfire"].forEach((name) => toggleComposer(name, false, { silent: true }));
+  ["room", "npc", "source", "event", "campfire", "journey"].forEach((name) => toggleComposer(name, false, { silent: true }));
 }
 
 function toggleComposer(name, forceOpen, options = {}) {
@@ -565,6 +583,9 @@ function freshState() {
         }
       ]
     },
+    journey: {
+      entries: []
+    },
     market: {
       permanentCount: 14,
       consumableCount: 10,
@@ -692,6 +713,7 @@ function normalizeState(value) {
     events: Array.isArray(data.events) ? data.events.map(normalizeCalendarEvent) : fallback.events,
     autoProcessRecurring: data.autoProcessRecurring === true,
     campfire: normalizeCampfire(data.campfire || fallback.campfire, users),
+    journey: normalizeJourney(data.journey || fallback.journey, users),
     market: normalizeMarket(data.market || fallback.market)
   };
   return repairNpcFinanceSources(normalized);
@@ -852,6 +874,50 @@ function normalizeCampfireGoal(goal) {
     createdAt: Number(goal?.createdAt) || Date.now(),
     updatedAt: Number(goal?.updatedAt) || Date.now()
   };
+}
+
+function normalizeJourney(journey, users) {
+  const source = journey && typeof journey === "object" ? journey : {};
+  const userLookup = new Map((Array.isArray(users) ? users : []).map((user) => [user.id, user]));
+  return {
+    entries: Array.isArray(source.entries) ? source.entries.map((entry) => normalizeJourneyEntry(entry, userLookup)) : []
+  };
+}
+
+function normalizeJourneyEntry(entry, userLookup) {
+  const createdByUserId = entry?.createdByUserId || "";
+  const creator = createdByUserId ? userLookup.get(createdByUserId) : null;
+  return {
+    id: entry?.id || createId("journey"),
+    title: String(entry?.title || "").trim() || "Lembrança sem título",
+    level: normalizeJourneyLevel(entry?.level),
+    image: entry?.image || "",
+    description: String(entry?.description || "").trim(),
+    createdByUserId,
+    createdByName: entry?.createdByName?.trim() || creator?.name || "Mesa",
+    createdAt: Number(entry?.createdAt) || Date.now(),
+    updatedAt: Number(entry?.updatedAt) || Date.now(),
+    comments: Array.isArray(entry?.comments) ? entry.comments.map((comment) => normalizeJourneyComment(comment, userLookup)) : []
+  };
+}
+
+function normalizeJourneyComment(comment, userLookup) {
+  const userId = comment?.userId || "";
+  const user = userId ? userLookup.get(userId) : null;
+  return {
+    id: comment?.id || createId("journey-comment"),
+    text: String(comment?.text || "").trim() || "Comentário vazio.",
+    userId,
+    userName: comment?.userName?.trim() || user?.name || "Viajante",
+    heroId: comment?.heroId || "",
+    heroName: comment?.heroName?.trim() || "",
+    createdAt: Number(comment?.createdAt) || Date.now()
+  };
+}
+
+function normalizeJourneyLevel(level) {
+  const value = String(level ?? "").trim();
+  return value || "?";
 }
 
 function normalizeMarket(market) {
@@ -1197,6 +1263,9 @@ function render() {
       break;
     case "campfire":
       renderCampfire();
+      break;
+    case "journey":
+      renderJourney();
       break;
     case "market":
       renderMarket();
@@ -3256,6 +3325,325 @@ function getCampfireEditorHero() {
     return selectedHero || state.campfire.heroes[0] || null;
   }
   return null;
+}
+
+function renderJourney() {
+  const gallery = $("#journeyGallery");
+  const detail = $("#journeyDetail");
+  const count = $("#journeyCount");
+  if (!gallery || !detail) {
+    return;
+  }
+  const entries = getFilteredJourneyEntries();
+  if (count) {
+    count.textContent = `${entries.length} lembrança${entries.length === 1 ? "" : "s"}`;
+  }
+  if (selectedJourneyEntryId && !state.journey.entries.some((entry) => entry.id === selectedJourneyEntryId)) {
+    selectedJourneyEntryId = "";
+  }
+  if (selectedJourneyEntryId && entries.length && !entries.some((entry) => entry.id === selectedJourneyEntryId)) {
+    selectedJourneyEntryId = entries[0].id;
+  }
+  if (!entries.length) {
+    selectedJourneyEntryId = "";
+  }
+  if (!selectedJourneyEntryId && entries.length) {
+    selectedJourneyEntryId = entries[0].id;
+  }
+  const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeySort")?.value || "name", selectedJourneyEntryId, getActiveUserId(), isAdmin());
+  const galleryHtml = getCachedValue(renderCache.journeyGalleryHtml, key, () => entries.length
+    ? entries.map(renderJourneyCard).join("")
+    : renderEmpty("Jornada vazia", "Adicione uma imagem, um nome e uma descrição para começar o diário da mesa."));
+  setHtmlIfChanged(gallery, galleryHtml);
+  const selectedEntry = state.journey.entries.find((entry) => entry.id === selectedJourneyEntryId) || entries[0] || null;
+  const detailKey = getCacheKey(state.revision, selectedEntry?.id || "none", selectedEntry?.updatedAt || 0, selectedEntry?.comments.length || 0, getActiveUserId(), isAdmin());
+  const detailHtml = getCachedValue(renderCache.journeyDetailHtml, detailKey, () => renderJourneyDetail(selectedEntry));
+  setHtmlIfChanged(detail, detailHtml);
+}
+
+function getFilteredJourneyEntries() {
+  const query = ($("#journeySearch")?.value || "").trim().toLowerCase();
+  const sort = $("#journeySort")?.value || "name";
+  const entries = state.journey.entries.filter((entry) => {
+    const comments = entry.comments.map((comment) => `${comment.text} ${comment.heroName} ${comment.userName}`).join(" ");
+    const haystack = `${entry.title} ${entry.level} ${entry.description} ${comments}`.toLowerCase();
+    return !query || haystack.includes(query);
+  });
+  return [...entries].sort((a, b) => {
+    if (sort === "level") {
+      const levelCompare = compareJourneyLevels(a.level, b.level);
+      if (levelCompare !== 0) {
+        return levelCompare;
+      }
+    }
+    return a.title.localeCompare(b.title, "pt-BR");
+  });
+}
+
+function compareJourneyLevels(a, b) {
+  const first = Number.parseFloat(String(a).replace(",", "."));
+  const second = Number.parseFloat(String(b).replace(",", "."));
+  const firstKnown = Number.isFinite(first);
+  const secondKnown = Number.isFinite(second);
+  if (firstKnown && secondKnown && first !== second) {
+    return first - second;
+  }
+  if (firstKnown !== secondKnown) {
+    return firstKnown ? -1 : 1;
+  }
+  return String(a).localeCompare(String(b), "pt-BR");
+}
+
+function renderJourneyCard(entry) {
+  const active = entry.id === selectedJourneyEntryId ? "active" : "";
+  const canRemove = canManageJourneyEntry(entry);
+  return `
+    <article class="journey-card ${active}">
+      <button class="journey-card-open" type="button" data-action="select-journey" data-id="${escapeAttr(entry.id)}">
+        ${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}
+        <span class="journey-card-title">${escapeHtml(entry.title)}</span>
+        <span class="journey-level">Nível ${escapeHtml(entry.level)}</span>
+      </button>
+      ${canRemove ? `<button class="icon-button journey-card-delete" type="button" title="Remover lembrança" data-action="delete-journey" data-id="${escapeAttr(entry.id)}">✕</button>` : ""}
+    </article>
+  `;
+}
+
+function renderJourneyDetail(entry) {
+  if (!entry) {
+    return renderEmpty("Selecione uma lembrança", "A descrição e os comentários aparecerão aqui.");
+  }
+  const canRemove = canManageJourneyEntry(entry);
+  const comments = entry.comments.length
+    ? entry.comments
+        .slice()
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((comment) => renderJourneyComment(entry, comment))
+        .join("")
+    : renderEmpty("Sem comentários", "Os heróis ainda não deixaram notas sobre esta lembrança.");
+  return `
+    <article class="journey-detail-card">
+      <header>
+        <div>
+          <p class="eyebrow">Lembrança aberta</p>
+          <h3>${escapeHtml(entry.title)}</h3>
+          <div class="chip-row compact">
+            <span class="chip">Nível ${escapeHtml(entry.level)}</span>
+            <span class="chip">${escapeHtml(entry.createdByName)}</span>
+          </div>
+        </div>
+        <div class="card-actions">
+          ${canRemove ? `<button class="icon-button" type="button" title="Editar lembrança" data-action="edit-journey" data-id="${escapeAttr(entry.id)}">✎</button>` : ""}
+          ${canRemove ? `<button class="icon-button" type="button" title="Remover lembrança" data-action="delete-journey" data-id="${escapeAttr(entry.id)}">✕</button>` : ""}
+        </div>
+      </header>
+      ${entry.image ? `<img class="journey-detail-image" src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : ""}
+      <p class="journey-description">${entry.description ? nl2br(entry.description) : "Nenhuma descrição foi registrada."}</p>
+      <section class="journey-comments">
+        <div class="section-header floating lower">
+          <div>
+            <p class="eyebrow">Comentários</p>
+            <h4>Notas dos heróis</h4>
+          </div>
+        </div>
+        <form class="journey-comment-form" data-entry-id="${escapeAttr(entry.id)}">
+          <textarea name="comment" rows="3" maxlength="500" placeholder="Escreva uma observação do seu herói..."></textarea>
+          <button class="button subtle" type="submit">Comentar</button>
+        </form>
+        <div class="journey-comment-list">${comments}</div>
+      </section>
+    </article>
+  `;
+}
+
+function renderJourneyComment(entry, comment) {
+  const author = comment.heroName || comment.userName || "Viajante";
+  const canRemove = canManageJourneyComment(comment);
+  return `
+    <article class="journey-comment">
+      <div>
+        <strong>${escapeHtml(author)}</strong>
+        ${comment.heroName && comment.userName ? `<span>${escapeHtml(comment.userName)}</span>` : ""}
+      </div>
+      <p>${nl2br(comment.text)}</p>
+      ${canRemove ? `<button class="icon-button" type="button" title="Remover comentário" data-action="delete-journey-comment" data-entry-id="${escapeAttr(entry.id)}" data-comment-id="${escapeAttr(comment.id)}">✕</button>` : ""}
+    </article>
+  `;
+}
+
+function saveJourneyEntry(event) {
+  event.preventDefault();
+  if (!isAuthenticated()) {
+    showToast("Faça login para registrar a Jornada.");
+    return;
+  }
+  const title = $("#journeyTitle").value.trim();
+  if (!title) {
+    showToast("Informe um título para a lembrança.");
+    return;
+  }
+  const id = $("#journeyEntryId").value;
+  const existing = id ? state.journey.entries.find((entry) => entry.id === id) : null;
+  if (existing && !canManageJourneyEntry(existing)) {
+    showToast("Você só pode editar lembranças que criou.");
+    return;
+  }
+  const user = getActiveUser();
+  const payload = {
+    id: existing?.id || createId("journey"),
+    title,
+    level: normalizeJourneyLevel($("#journeyLevel").value),
+    image: $("#journeyImage").value || "",
+    description: $("#journeyDescription").value.trim(),
+    createdByUserId: existing?.createdByUserId || user.id,
+    createdByName: existing?.createdByName || user.name,
+    createdAt: existing?.createdAt || Date.now(),
+    updatedAt: Date.now(),
+    comments: existing?.comments || []
+  };
+  const index = state.journey.entries.findIndex((entry) => entry.id === payload.id);
+  if (index >= 0) {
+    state.journey.entries[index] = payload;
+  } else {
+    state.journey.entries.push(payload);
+  }
+  selectedJourneyEntryId = payload.id;
+  saveState();
+  clearJourneyForm({ keepOpen: false });
+  toggleComposer("journey", false, { silent: true });
+  renderJourney();
+  showToast("Lembrança registrada na Jornada.");
+}
+
+function handleJourneyAction(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  const id = button.dataset.id;
+  if (action === "select-journey" && id) {
+    selectedJourneyEntryId = id;
+    renderJourney();
+    return;
+  }
+  if (action === "edit-journey" && id) {
+    loadJourneyEntry(id);
+    return;
+  }
+  if (action === "delete-journey" && id) {
+    const entry = state.journey.entries.find((item) => item.id === id);
+    if (!entry || !canManageJourneyEntry(entry)) {
+      return;
+    }
+    if (confirm(`Remover ${entry.title} da Jornada?`)) {
+      state.journey.entries = state.journey.entries.filter((item) => item.id !== id);
+      if (selectedJourneyEntryId === id) {
+        selectedJourneyEntryId = "";
+      }
+      saveState();
+      renderJourney();
+      showToast("Lembrança removida.");
+    }
+    return;
+  }
+  if (action === "delete-journey-comment") {
+    deleteJourneyComment(button.dataset.entryId, button.dataset.commentId);
+  }
+}
+
+function handleJourneyCommentSubmit(event) {
+  if (!event.target.classList.contains("journey-comment-form")) {
+    return;
+  }
+  event.preventDefault();
+  if (!isAuthenticated()) {
+    showToast("Faça login para comentar.");
+    return;
+  }
+  const entry = state.journey.entries.find((item) => item.id === event.target.dataset.entryId);
+  const textarea = event.target.elements.comment;
+  const text = textarea?.value.trim() || "";
+  if (!entry || !text) {
+    return;
+  }
+  const user = getActiveUser();
+  const hero = getCampfireHeroForUser(user.id);
+  entry.comments.push({
+    id: createId("journey-comment"),
+    text,
+    userId: user.id,
+    userName: user.name,
+    heroId: hero?.id || "",
+    heroName: hero?.characterName || "",
+    createdAt: Date.now()
+  });
+  entry.updatedAt = Date.now();
+  textarea.value = "";
+  saveState();
+  renderJourney();
+  showToast("Comentário adicionado.");
+}
+
+function loadJourneyEntry(id) {
+  const entry = state.journey.entries.find((item) => item.id === id);
+  if (!entry || !canManageJourneyEntry(entry)) {
+    return;
+  }
+  selectedJourneyEntryId = entry.id;
+  $("#journeyEntryId").value = entry.id;
+  $("#journeyTitle").value = entry.title;
+  $("#journeyLevel").value = entry.level;
+  $("#journeyImage").value = entry.image || "";
+  $("#journeyDescription").value = entry.description || "";
+  $("#journeyFormTitle").textContent = "Editar lembrança";
+  $("#journeyImageUpload").value = "";
+  renderImagePreview("journeyImagePreview", entry.image || "");
+  toggleComposer("journey", true, { silent: true });
+  renderJourney();
+}
+
+function clearJourneyForm(options = {}) {
+  $("#journeyEntryId").value = "";
+  $("#journeyTitle").value = "";
+  $("#journeyLevel").value = "";
+  $("#journeyImage").value = "";
+  $("#journeyImageUpload").value = "";
+  $("#journeyDescription").value = "";
+  $("#journeyFormTitle").textContent = "Nova lembrança";
+  renderImagePreview("journeyImagePreview", "");
+  if (!options.keepOpen) {
+    renderJourney();
+  }
+}
+
+function clearJourneyImage() {
+  $("#journeyImage").value = "";
+  $("#journeyImageUpload").value = "";
+  renderImagePreview("journeyImagePreview", "");
+}
+
+function deleteJourneyComment(entryId, commentId) {
+  const entry = state.journey.entries.find((item) => item.id === entryId);
+  const comment = entry?.comments.find((item) => item.id === commentId);
+  if (!entry || !comment || !canManageJourneyComment(comment)) {
+    return;
+  }
+  if (confirm("Remover este comentário?")) {
+    entry.comments = entry.comments.filter((item) => item.id !== comment.id);
+    entry.updatedAt = Date.now();
+    saveState();
+    renderJourney();
+    showToast("Comentário removido.");
+  }
+}
+
+function canManageJourneyEntry(entry) {
+  return Boolean(entry) && (isAdmin() || entry.createdByUserId === getActiveUserId());
+}
+
+function canManageJourneyComment(comment) {
+  return Boolean(comment) && (isAdmin() || comment.userId === getActiveUserId());
 }
 
 function renderCampfire() {

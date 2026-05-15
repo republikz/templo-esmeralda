@@ -25,6 +25,7 @@
   --icon-finance: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='12' cy='6' rx='6.5' ry='3.5'/%3E%3Cpath d='M5.5 6v6.5C5.5 14.4 8.4 16 12 16s6.5-1.6 6.5-3.5V6'/%3E%3Cpath d='M5.5 12.5V17c0 1.9 2.9 3.5 6.5 3.5s6.5-1.6 6.5-3.5v-4.5'/%3E%3C/svg%3E");
   --icon-calendar: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='5' width='16' height='15' rx='2'/%3E%3Cpath d='M8 3v4M16 3v4M4 9h16'/%3E%3Cpath d='M8 13h3M13 13h3M8 17h3M13 17h3'/%3E%3C/svg%3E");
   --icon-campfire: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3c1.5 2.3 1 3.9-.4 5.5 2.5-.5 4.9 1.1 5.7 3.7.9 2.8-.5 5.5-3 7.1-1.5 1-3.6 1.7-5.7 1.2-3-.7-5-3.3-5-6.4 0-2.6 1.7-4.9 4.1-5.9-.3 1.9.5 3.2 1.7 4.2C11.3 10.2 13 7.8 12 3Z'/%3E%3Cpath d='M7 20h10'/%3E%3C/svg%3E");
+  --icon-journey: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 4h10a3 3 0 0 1 0 6H7a3 3 0 0 0 0 6h11'/%3E%3Cpath d='M7 10v10h11v-4'/%3E%3Cpath d='M9 13h5M9 16h7'/%3E%3C/svg%3E");
   --icon-market: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8h16l-1.2 12H5.2z'/%3E%3Cpath d='M8 8a4 4 0 0 1 8 0'/%3E%3Cpath d='M9 12h6'/%3E%3C/svg%3E");
   --icon-settings: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='3.5'/%3E%3Cpath d='M19 12a7 7 0 0 0-.1-1l2-1.2-2-3.4-2.2.8a7 7 0 0 0-1.7-1l-.3-2.3H9.3L9 5.2a7 7 0 0 0-1.7 1l-2.2-.8-2 3.4 2 1.2a7 7 0 0 0 0 2l-2 1.2 2 3.4 2.2-.8a7 7 0 0 0 1.7 1l.3 2.3h4.4l.3-2.3a7 7 0 0 0 1.7-1l2.2.8 2-3.4-2-1.2c.1-.3.1-.6.1-1Z'/%3E%3C/svg%3E");
   --icon-edit: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h4l10-10-4-4L4 16z'/%3E%3Cpath d='M14 6l4 4'/%3E%3C/svg%3E");
@@ -174,6 +175,7 @@ img {
 .nav-button[data-view-target="finance"] > span[aria-hidden="true"] { --icon: var(--icon-finance); }
 .nav-button[data-view-target="calendar"] > span[aria-hidden="true"] { --icon: var(--icon-calendar); }
 .nav-button[data-view-target="campfire"] > span[aria-hidden="true"] { --icon: var(--icon-campfire); }
+.nav-button[data-view-target="journey"] > span[aria-hidden="true"] { --icon: var(--icon-journey); }
 .nav-button[data-view-target="market"] > span[aria-hidden="true"] { --icon: var(--icon-market); }
 .nav-button[data-view-target="settings"] > span[aria-hidden="true"] { --icon: var(--icon-settings); }
 
@@ -2512,6 +2514,211 @@ legend {
   min-height: 180px;
 }
 
+.journey-intro {
+  margin-bottom: 16px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(231, 197, 123, 0.12), transparent 34%),
+    radial-gradient(circle at 88% 18%, rgba(126, 255, 227, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(26, 22, 16, 0.98), rgba(13, 15, 14, 0.94));
+}
+
+.journey-editor {
+  margin-bottom: 16px;
+}
+
+.journey-board-panel {
+  overflow: visible;
+}
+
+.journey-toolbar {
+  margin-bottom: 16px;
+}
+
+.journey-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.72fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.journey-collage {
+  column-count: 3;
+  column-gap: 14px;
+}
+
+.journey-card {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 14px;
+  break-inside: avoid;
+  border: 1px solid rgba(231, 197, 123, 0.24);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 231, 0.05), rgba(255, 255, 255, 0.02)),
+    rgba(19, 18, 16, 0.92);
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.32);
+}
+
+.journey-card.active {
+  border-color: rgba(126, 255, 227, 0.62);
+  box-shadow: 0 22px 64px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(126, 255, 227, 0.14);
+}
+
+.journey-card-open {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.journey-card-open img,
+.journey-detail-image {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+  display: block;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.journey-image-placeholder {
+  min-height: 170px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(231, 197, 123, 0.28);
+  border-radius: 6px;
+  color: rgba(246, 230, 201, 0.58);
+  font-family: var(--font-display);
+}
+
+.journey-card-title {
+  color: #fff5dc;
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.journey-level {
+  width: fit-content;
+  padding: 4px 8px;
+  border: 1px solid rgba(231, 197, 123, 0.32);
+  border-radius: 999px;
+  color: #ffe9aa;
+  background: rgba(231, 197, 123, 0.1);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.journey-card-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(16, 13, 10, 0.82);
+}
+
+.journey-detail {
+  position: sticky;
+  top: 20px;
+  min-width: 0;
+}
+
+.journey-detail-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(231, 197, 123, 0.22);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at top right, rgba(231, 197, 123, 0.1), transparent 28%),
+    rgba(15, 17, 15, 0.94);
+}
+
+.journey-detail-card header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.journey-detail-card h3 {
+  margin: 0;
+  color: #fff6de;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+
+.journey-description {
+  margin: 0;
+  color: rgba(243, 234, 216, 0.78);
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+}
+
+.journey-comments {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(231, 197, 123, 0.16);
+}
+
+.journey-comment-form {
+  display: grid;
+  gap: 10px;
+}
+
+.journey-comment-form textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.journey-comment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.journey-comment {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(231, 197, 123, 0.16);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.journey-comment strong {
+  color: #fff5dc;
+}
+
+.journey-comment span {
+  display: block;
+  margin-top: 2px;
+  color: rgba(246, 230, 201, 0.52);
+  font-size: 0.82rem;
+}
+
+.journey-comment p {
+  margin: 0;
+  color: rgba(243, 234, 216, 0.76);
+  line-height: 1.48;
+  overflow-wrap: anywhere;
+}
+
+.journey-comment .icon-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
 .campfire-note-summary,
 .campfire-goal-empty,
 .hero-goal-empty {
@@ -2546,8 +2753,17 @@ legend {
   .campfire-layout,
   .hero-card > header,
   .hero-goal-columns,
-  .campfire-goal-columns {
+  .campfire-goal-columns,
+  .journey-layout {
     grid-template-columns: 1fr;
+  }
+
+  .journey-detail {
+    position: static;
+  }
+
+  .journey-collage {
+    column-count: 2;
   }
 
   .hero-card > header {
@@ -2802,6 +3018,10 @@ legend {
 @media (max-width: 560px) {
   .date-fields {
     grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .journey-collage {
+    column-count: 1;
   }
 
   .auto-process {

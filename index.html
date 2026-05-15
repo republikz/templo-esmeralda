@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@400;500;700;800&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=11">
+    <link rel="stylesheet" href="styles.css?v=12">
   </head>
   <body>
     <div class="app-shell">
@@ -44,6 +44,10 @@
           <button class="nav-button" type="button" data-view-target="campfire">
             <span aria-hidden="true">🔥</span>
             Fogueira
+          </button>
+          <button class="nav-button" type="button" data-view-target="journey">
+            <span aria-hidden="true">▤</span>
+            Jornada
           </button>
           <button class="nav-button" type="button" data-view-target="market">
             <span aria-hidden="true">✦</span>
@@ -636,6 +640,79 @@
           </section>
         </section>
 
+        <section class="view" id="view-journey">
+          <section class="panel journey-intro">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Diário da mesa</p>
+                <h2>Jornada</h2>
+              </div>
+              <button class="button primary" type="button" id="toggleJourneyComposer">Adicionar</button>
+            </div>
+            <p class="muted">Guarde rostos, lugares, criaturas e sinais encontrados pelo caminho. Cada lembrança pode receber comentários dos heróis.</p>
+          </section>
+
+          <section class="panel form-panel journey-editor">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Registro da jornada</p>
+                <h2 id="journeyFormTitle">Nova lembrança</h2>
+              </div>
+            </div>
+            <div class="composer-body" id="journeyComposerBody" hidden>
+              <form id="journeyForm" class="stacked-form">
+                <input type="hidden" id="journeyEntryId">
+                <label>
+                  Imagem
+                  <input id="journeyImageUpload" type="file" accept="image/*">
+                  <input id="journeyImage" type="hidden">
+                </label>
+                <div class="image-preview" id="journeyImagePreview"></div>
+                <div class="form-row">
+                  <label>
+                    Título
+                    <input id="journeyTitle" maxlength="100" autocomplete="off" placeholder="Ex.: Ruínas sob a neve">
+                  </label>
+                  <label>
+                    Nível
+                    <input id="journeyLevel" maxlength="12" autocomplete="off" placeholder="Ex.: 7 ou ?">
+                  </label>
+                </div>
+                <label>
+                  Descrição
+                  <textarea id="journeyDescription" rows="5" maxlength="1200" placeholder="O que foi visto, ouvido ou descoberto?"></textarea>
+                </label>
+                <div class="button-row">
+                  <button class="button primary" type="submit">Salvar lembrança</button>
+                  <button class="button ghost" id="clearJourneyImage" type="button">Remover imagem</button>
+                  <button class="button ghost" id="cancelJourneyEdit" type="button">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <section class="panel journey-board-panel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Mural da aventura</p>
+                <h2>Colagem da Jornada</h2>
+              </div>
+              <span class="chip" id="journeyCount">0 lembranças</span>
+            </div>
+            <div class="toolbar split journey-toolbar">
+              <input id="journeySearch" type="search" placeholder="Buscar na jornada">
+              <select id="journeySort">
+                <option value="name">Nome</option>
+                <option value="level">Nível</option>
+              </select>
+            </div>
+            <div class="journey-layout">
+              <div class="journey-collage" id="journeyGallery"></div>
+              <aside class="journey-detail" id="journeyDetail"></aside>
+            </div>
+          </section>
+        </section>
+
         <section class="view" id="view-market">
           <section class="panel market-controls" id="marketControls">
             <div class="section-header">
@@ -809,6 +886,6 @@
       </section>
     </div>
 
-    <script src="app.js?v=13" defer></script>
+    <script src="app.js?v=14" defer></script>
   </body>
 </html>
