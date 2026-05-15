@@ -613,7 +613,6 @@ function shouldBootstrapFromSeed(remoteState, seedState) {
 async function loadSharedState() {
   const fallback = loadLocalState();
   const seed = await loadSeedState();
-  console.log('STATE_API_URL',STATE_API_URL)
   try {
     const response = await fetch(STATE_API_URL, { cache: "no-store" });
     if (response.ok) {
@@ -1329,7 +1328,7 @@ function logout() {
   applyAuthState();
   showView("dashboard");
   render();
-  showToast("Sess?o encerrada.");
+  showToast("Sessão encerrada.");
 }
 
 function renderSidebar() {
@@ -2092,7 +2091,7 @@ function renderNextCycleCalendar() {
   const entries = getRecurringCalendarEntries(rangeStart, rangeEnd);
   const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.amountCopper, 0);
   const expense = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + entry.amountCopper, 0);
-  const html = `<div class="section-header"><div><p class="eyebrow">Pr?ximo ciclo</p><h2>Ciclo ${nextYear + 1}</h2></div><div class="chip-row"><span class="chip income">Receitas: ${formatCopper(income)}</span><span class="chip expense">Despesas: ${formatCopper(expense)}</span><span class="chip">${entries.length} registro${entries.length === 1 ? "" : "s"}</span></div></div><div class="next-cycle-list">${entries.length ? entries.map(renderCalendarEntry).join("") : renderEmpty("Sem contratos no pr?ximo ciclo", "Os contratos ativos aparecer?o aqui quando tiverem datas previstas.")}</div>`;
+  const html = `<div class="section-header"><div><p class="eyebrow">Próximo ciclo</p><h2>Ciclo ${nextYear + 1}</h2></div><div class="chip-row"><span class="chip income">Receitas: ${formatCopper(income)}</span><span class="chip expense">Despesas: ${formatCopper(expense)}</span><span class="chip">${entries.length} registro${entries.length === 1 ? "" : "s"}</span></div></div><div class="next-cycle-list">${entries.length ? entries.map(renderCalendarEntry).join("") : renderEmpty("Sem contratos no próximo ciclo", "Os contratos ativos aparecerão aqui quando tiverem datas previstas.")}</div>`;
   setHtmlIfChanged(panel, html);
 }
 
@@ -3194,12 +3193,12 @@ function renderDashboard() {
   const totalItems = getMarketStockTotal();
   const nextMarketDay = getNextMarketDay();
   const marketHtml = [`<article class="ledger-item market-overview-card"><span class="eyebrow">Itens no mercado</span><strong>${totalItems}</strong></article>`,
-    `<article class="ledger-item market-overview-card"><span class="eyebrow">Pr?xima atualiza??o</span><strong>${formatCalendarDate(nextMarketDay)}</strong></article>`].join("");
+    `<article class="ledger-item market-overview-card"><span class="eyebrow">Próxima atualização</span><strong>${formatCalendarDate(nextMarketDay)}</strong></article>`].join("");
   setHtmlIfChanged($("#dashboardMarketList"), marketHtml);
   const recent = [...state.ledger].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
   const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(state.revision, recent.length, "dashboard-ledger"), () => recent.length
     ? recent.map((entry) => `<article class="ledger-item"><strong>${escapeHtml(entry.name)}</strong><p>${formatCalendarDate(entry.day)} ? <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> ? ${formatCopper(entry.amountCopper)}</p></article>`).join("")
-    : renderEmpty("Sem movimentos", "Os registros do tesouro ainda n?o receberam movimentos."));
+    : renderEmpty("Sem movimentos", "Os registros do tesouro ainda não receberam movimentos."));
   setHtmlIfChanged($("#recentLedger"), recentHtml);
 }
 
@@ -3208,15 +3207,15 @@ function renderDashboardHero() {
   if (!panel) return;
   const hero = getCampfireHeroForUser(getActiveUserId());
   if (!hero) {
-    setHtmlIfChanged(panel, renderEmpty("Seu her?i", "Nenhum personagem est? vinculado a este perfil."));
+    setHtmlIfChanged(panel, renderEmpty("Seu herói", "Nenhum personagem está vinculado a este perfil."));
     return;
   }
   const visibleGoals = hero.goals.filter((goal) => canSeeCampfireSecrets(hero) || !goal.secret);
   const goalsHtml = ["short", "medium", "long"].map((category) => {
     const goal = visibleGoals.find((item) => item.category === category);
-    return `<article class="dash-goal goal-${category}"><strong>${escapeHtml(campfireGoalCategories[category])}</strong><p>${goal ? escapeHtml(goal.text) : "Sem objetivo vis?vel."}${goal?.secret ? " <em>Secreto</em>" : ""}</p></article>`;
+    return `<article class="dash-goal goal-${category}"><strong>${escapeHtml(campfireGoalCategories[category])}</strong><p>${goal ? escapeHtml(goal.text) : "Sem objetivo visível."}${goal?.secret ? " <em>Secreto</em>" : ""}</p></article>`;
   }).join("");
-  const html = `<div class="dashboard-hero-copy"><p class="eyebrow">Seu her?i</p><h2>${escapeHtml(hero.characterName)}</h2></div><div class="dashboard-hero-content"><div class="dash-hero-avatar ${hero.image ? "has-image" : ""}">${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}</div><div class="dash-goal-grid">${goalsHtml}</div></div>`;
+  const html = `<div class="dashboard-hero-copy"><p class="eyebrow">Seu herói</p><h2>${escapeHtml(hero.characterName)}</h2></div><div class="dashboard-hero-content"><div class="dash-hero-avatar ${hero.image ? "has-image" : ""}">${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}</div><div class="dash-goal-grid">${goalsHtml}</div></div>`;
   setHtmlIfChanged(panel, html);
 }
 
