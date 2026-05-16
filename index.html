@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@400;500;700;800&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=12">
+    <link rel="stylesheet" href="styles.css?v=13">
   </head>
   <body>
     <div class="app-shell">
@@ -652,7 +652,7 @@
             <p class="muted">Guarde rostos, lugares, criaturas e sinais encontrados pelo caminho. Cada lembrança pode receber comentários dos heróis.</p>
           </section>
 
-          <section class="panel form-panel journey-editor">
+          <section class="panel form-panel journey-editor" id="journeyEditorPanel" hidden>
             <div class="section-header">
               <div>
                 <p class="eyebrow">Registro da jornada</p>
@@ -706,11 +706,15 @@
                 <option value="level">Nível</option>
               </select>
             </div>
-            <div class="journey-layout">
-              <div class="journey-collage" id="journeyGallery"></div>
-              <aside class="journey-detail" id="journeyDetail"></aside>
-            </div>
+            <div class="journey-collage" id="journeyGallery"></div>
           </section>
+
+          <div class="journey-modal" id="journeyModal" hidden>
+            <button class="journey-modal-backdrop" type="button" data-action="close-journey-modal" aria-label="Fechar lembrança"></button>
+            <section class="journey-modal-panel" aria-label="Detalhe da lembrança">
+              <div class="journey-detail" id="journeyDetail"></div>
+            </section>
+          </div>
         </section>
 
         <section class="view" id="view-market">
@@ -886,6 +890,6 @@
       </section>
     </div>
 
-    <script src="app.js?v=14" defer></script>
+    <script src="app.js?v=15" defer></script>
   </body>
 </html>

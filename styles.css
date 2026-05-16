@@ -2528,41 +2528,57 @@ legend {
 
 .journey-board-panel {
   overflow: visible;
+  background:
+    linear-gradient(90deg, rgba(231, 197, 123, 0.045) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(180deg, rgba(231, 197, 123, 0.035) 1px, transparent 1px) 0 0 / 28px 28px,
+    radial-gradient(circle at 10% 0%, rgba(231, 197, 123, 0.09), transparent 32%),
+    rgba(15, 17, 15, 0.94);
 }
 
 .journey-toolbar {
   margin-bottom: 16px;
 }
 
-.journey-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.72fr);
-  gap: 16px;
-  align-items: start;
-}
-
 .journey-collage {
-  column-count: 3;
-  column-gap: 14px;
+  column-count: 4;
+  column-gap: 18px;
 }
 
 .journey-card {
   position: relative;
   display: inline-block;
   width: 100%;
-  margin: 0 0 14px;
+  margin: 0 0 18px;
   break-inside: avoid;
-  border: 1px solid rgba(231, 197, 123, 0.24);
-  border-radius: 8px;
+  border: 1px solid rgba(231, 197, 123, 0.32);
+  border-radius: 6px;
   background:
-    linear-gradient(180deg, rgba(255, 250, 231, 0.05), rgba(255, 255, 255, 0.02)),
-    rgba(19, 18, 16, 0.92);
-  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.32);
+    linear-gradient(180deg, rgba(255, 247, 220, 0.08), rgba(255, 255, 255, 0.025)),
+    rgba(24, 21, 17, 0.94);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  transform: rotate(-0.35deg);
 }
 
-.journey-card.active {
-  border-color: rgba(126, 255, 227, 0.62);
-  box-shadow: 0 22px 64px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(126, 255, 227, 0.14);
+.journey-card:nth-child(3n) {
+  transform: rotate(0.45deg);
+}
+
+.journey-card:nth-child(4n) {
+  transform: rotate(-0.7deg);
+}
+
+.journey-card::before {
+  content: "";
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 62px;
+  height: 18px;
+  transform: translateX(-50%) rotate(-2deg);
+  border: 1px solid rgba(231, 197, 123, 0.18);
+  border-radius: 2px;
+  background: rgba(232, 215, 169, 0.16);
+  pointer-events: none;
 }
 
 .journey-card-open {
@@ -2584,7 +2600,7 @@ legend {
   max-height: none;
   object-fit: contain;
   display: block;
-  border-radius: 6px;
+  border-radius: 4px;
   background: rgba(0, 0, 0, 0.22);
 }
 
@@ -2624,9 +2640,47 @@ legend {
   background: rgba(16, 13, 10, 0.82);
 }
 
-.journey-detail {
-  position: sticky;
-  top: 20px;
+.journey-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.journey-modal[hidden] {
+  display: none;
+}
+
+body.journey-modal-open {
+  overflow: hidden;
+}
+
+.journey-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(3, 5, 5, 0.72);
+  cursor: pointer;
+}
+
+.journey-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(860px, 100%);
+  max-height: min(88vh, 980px);
+  overflow: auto;
+  border: 1px solid rgba(231, 197, 123, 0.34);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(231, 197, 123, 0.13), transparent 32%),
+    linear-gradient(180deg, rgba(19, 18, 16, 0.98), rgba(9, 12, 11, 0.98));
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.66);
+}
+
+.journey-modal .journey-detail {
+  position: static;
   min-width: 0;
 }
 
@@ -2634,11 +2688,9 @@ legend {
   display: grid;
   gap: 14px;
   padding: 16px;
-  border: 1px solid rgba(231, 197, 123, 0.22);
-  border-radius: var(--radius);
-  background:
-    radial-gradient(circle at top right, rgba(231, 197, 123, 0.1), transparent 28%),
-    rgba(15, 17, 15, 0.94);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .journey-detail-card header {
@@ -2753,13 +2805,12 @@ legend {
   .campfire-layout,
   .hero-card > header,
   .hero-goal-columns,
-  .campfire-goal-columns,
-  .journey-layout {
+  .campfire-goal-columns {
     grid-template-columns: 1fr;
   }
 
-  .journey-detail {
-    position: static;
+  .journey-modal {
+    padding: 14px;
   }
 
   .journey-collage {

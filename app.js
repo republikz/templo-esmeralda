@@ -314,8 +314,10 @@ function bindEvents() {
   $("#journeySearch")?.addEventListener("input", debounce(renderJourney, 80));
   $("#journeySort")?.addEventListener("change", renderJourney);
   $("#journeyGallery")?.addEventListener("click", handleJourneyAction);
+  $("#journeyModal")?.addEventListener("click", handleJourneyAction);
   $("#journeyDetail")?.addEventListener("click", handleJourneyAction);
   $("#journeyDetail")?.addEventListener("submit", handleJourneyCommentSubmit);
+  document.addEventListener("keydown", handleJourneyKeydown);
 
   $("#settingsForm").addEventListener("submit", saveSettings);
   $("#exportData").addEventListener("click", exportData);
@@ -357,6 +359,10 @@ function toggleComposer(name, forceOpen, options = {}) {
   const isOpen = body.hidden === false;
   const nextOpen = typeof forceOpen === "boolean" ? forceOpen : !isOpen;
   body.hidden = !nextOpen;
+  const panel = name === "journey" ? $("#journeyEditorPanel") : null;
+  if (panel) {
+    panel.hidden = !nextOpen;
+  }
   button.textContent = nextOpen ? "Fechar" : "Adicionar";
   if (!options.silent && nextOpen) {
     body.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1209,6 +1215,10 @@ async function syncStateFromServer() {
 
 function showView(view) {
   activeView = viewTitles[view] && canAccessView(view) ? view : "dashboard";
+  if (activeView !== "journey") {
+    selectedJourneyEntryId = "";
+    document.body.classList.remove("journey-modal-open");
+  }
   applyActiveViewState();
   if (window.location.hash !== `#${activeView}`) {
     history.replaceState(null, "", `#${activeView}`);
@@ -3330,8 +3340,9 @@ function getCampfireEditorHero() {
 function renderJourney() {
   const gallery = $("#journeyGallery");
   const detail = $("#journeyDetail");
+  const modal = $("#journeyModal");
   const count = $("#journeyCount");
-  if (!gallery || !detail) {
+  if (!gallery || !detail || !modal) {
     return;
   }
   const entries = getFilteredJourneyEntries();
@@ -3342,23 +3353,22 @@ function renderJourney() {
     selectedJourneyEntryId = "";
   }
   if (selectedJourneyEntryId && entries.length && !entries.some((entry) => entry.id === selectedJourneyEntryId)) {
-    selectedJourneyEntryId = entries[0].id;
+    selectedJourneyEntryId = "";
   }
   if (!entries.length) {
     selectedJourneyEntryId = "";
-  }
-  if (!selectedJourneyEntryId && entries.length) {
-    selectedJourneyEntryId = entries[0].id;
   }
   const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeySort")?.value || "name", selectedJourneyEntryId, getActiveUserId(), isAdmin());
   const galleryHtml = getCachedValue(renderCache.journeyGalleryHtml, key, () => entries.length
     ? entries.map(renderJourneyCard).join("")
     : renderEmpty("Jornada vazia", "Adicione uma imagem, um nome e uma descrição para começar o diário da mesa."));
   setHtmlIfChanged(gallery, galleryHtml);
-  const selectedEntry = state.journey.entries.find((entry) => entry.id === selectedJourneyEntryId) || entries[0] || null;
+  const selectedEntry = selectedJourneyEntryId ? state.journey.entries.find((entry) => entry.id === selectedJourneyEntryId) : null;
   const detailKey = getCacheKey(state.revision, selectedEntry?.id || "none", selectedEntry?.updatedAt || 0, selectedEntry?.comments.length || 0, getActiveUserId(), isAdmin());
   const detailHtml = getCachedValue(renderCache.journeyDetailHtml, detailKey, () => renderJourneyDetail(selectedEntry));
   setHtmlIfChanged(detail, detailHtml);
+  modal.hidden = !selectedEntry;
+  document.body.classList.toggle("journey-modal-open", Boolean(selectedEntry));
 }
 
 function getFilteredJourneyEntries() {
@@ -3411,7 +3421,7 @@ function renderJourneyCard(entry) {
 
 function renderJourneyDetail(entry) {
   if (!entry) {
-    return renderEmpty("Selecione uma lembrança", "A descrição e os comentários aparecerão aqui.");
+    return "";
   }
   const canRemove = canManageJourneyEntry(entry);
   const comments = entry.comments.length
@@ -3435,6 +3445,7 @@ function renderJourneyDetail(entry) {
         <div class="card-actions">
           ${canRemove ? `<button class="icon-button" type="button" title="Editar lembrança" data-action="edit-journey" data-id="${escapeAttr(entry.id)}">✎</button>` : ""}
           ${canRemove ? `<button class="icon-button" type="button" title="Remover lembrança" data-action="delete-journey" data-id="${escapeAttr(entry.id)}">✕</button>` : ""}
+          <button class="icon-button" type="button" title="Fechar lembrança" data-action="close-journey-modal">×</button>
         </div>
       </header>
       ${entry.image ? `<img class="journey-detail-image" src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : ""}
@@ -3507,7 +3518,7 @@ function saveJourneyEntry(event) {
   } else {
     state.journey.entries.push(payload);
   }
-  selectedJourneyEntryId = payload.id;
+  selectedJourneyEntryId = "";
   saveState();
   clearJourneyForm({ keepOpen: false });
   toggleComposer("journey", false, { silent: true });
@@ -3527,8 +3538,13 @@ function handleJourneyAction(event) {
     renderJourney();
     return;
   }
+  if (action === "close-journey-modal") {
+    closeJourneyModal();
+    return;
+  }
   if (action === "edit-journey" && id) {
     loadJourneyEntry(id);
+    closeJourneyModal();
     return;
   }
   if (action === "delete-journey" && id) {
@@ -3585,12 +3601,22 @@ function handleJourneyCommentSubmit(event) {
   showToast("Comentário adicionado.");
 }
 
+function handleJourneyKeydown(event) {
+  if (event.key === "Escape" && selectedJourneyEntryId) {
+    closeJourneyModal();
+  }
+}
+
+function closeJourneyModal() {
+  selectedJourneyEntryId = "";
+  renderJourney();
+}
+
 function loadJourneyEntry(id) {
   const entry = state.journey.entries.find((item) => item.id === id);
   if (!entry || !canManageJourneyEntry(entry)) {
     return;
   }
-  selectedJourneyEntryId = entry.id;
   $("#journeyEntryId").value = entry.id;
   $("#journeyTitle").value = entry.title;
   $("#journeyLevel").value = entry.level;
