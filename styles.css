@@ -3276,3 +3276,202 @@ body.sidebar-collapsed .sidebar-toggle span {
   .dash-goal-grid,
   .next-cycle-list { grid-template-columns: 1fr; }
 }
+
+/* NPC gallery and modal */
+.npc-grid {
+  display: block;
+  column-count: 3;
+  column-gap: 16px;
+}
+
+.npc-card {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 16px;
+  break-inside: avoid;
+  overflow: visible;
+}
+
+.npc-card-open {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.npc-card .npc-portrait {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(231, 197, 123, 0.28);
+  border-radius: 5px;
+  background:
+    linear-gradient(135deg, rgba(156, 50, 72, 0.56), rgba(15, 118, 109, 0.48)),
+    rgba(8, 10, 8, 0.7);
+}
+
+.npc-card .npc-portrait img,
+.npc-detail-image img {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  display: block;
+  object-fit: contain;
+}
+
+#npcModalImagePreview img {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+}
+
+.npc-card .npc-portrait > span,
+.npc-detail-image > span {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: #fff0c7;
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+}
+
+.npc-card-title {
+  color: #fff5dc;
+  font-family: var(--font-display);
+  font-size: 1.06rem;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.npc-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.npc-card-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(16, 13, 10, 0.82);
+}
+
+.npc-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.npc-modal[hidden] {
+  display: none;
+}
+
+body.npc-modal-open {
+  overflow: hidden;
+}
+
+.npc-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(3, 5, 5, 0.72);
+  cursor: pointer;
+}
+
+.npc-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(920px, 100%);
+  max-height: min(88vh, 980px);
+  overflow: auto;
+  border: 1px solid rgba(231, 197, 123, 0.34);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(231, 197, 123, 0.13), transparent 32%),
+    linear-gradient(180deg, rgba(19, 18, 16, 0.98), rgba(9, 12, 11, 0.98));
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.66);
+}
+
+.npc-detail-card {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.npc-detail-card header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.npc-detail-card h3 {
+  margin: 0;
+  color: #fff6de;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+
+.npc-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.npc-detail-image {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(231, 197, 123, 0.24);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.npc-detail-copy {
+  display: grid;
+  gap: 12px;
+  color: rgba(243, 234, 216, 0.76);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.npc-summary {
+  color: #fff2cf;
+  font-weight: 800;
+}
+
+.icon-button[data-action="close-npc-modal"] {
+  --icon: var(--icon-close);
+}
+
+@media (max-width: 980px) {
+  .npc-grid {
+    column-count: 2;
+  }
+}
+
+@media (max-width: 680px) {
+  .npc-grid {
+    column-count: 1;
+  }
+
+  .npc-modal {
+    padding: 14px;
+  }
+
+  .npc-detail-layout,
+  .npc-detail-card header {
+    grid-template-columns: 1fr;
+  }
+}

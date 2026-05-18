@@ -56,6 +56,8 @@ let toastTimer = null;
 let syncTimer = null;
 let syncInFlight = false;
 let lastPermissionKey = "";
+let selectedNpcId = "";
+let npcModalEditId = "";
 let selectedJourneyEntryId = "";
 let journeyModalEditId = "";
 let lastSyncedRevision = 0;
@@ -70,6 +72,7 @@ const renderCache = {
   recentLedgerHtml: { key: "", value: "" },
   roomsHtml: { key: "", value: "" },
   npcsHtml: { key: "", value: "" },
+  npcDetailHtml: { key: "", value: "" },
   financeSourcesHtml: { key: "", value: "" },
   ledgerRowsHtml: { key: "", value: "" },
   calendarSummaryHtml: { key: "", value: "" },
@@ -231,6 +234,10 @@ function bindEvents() {
   $("#npcRoleFilter").addEventListener("change", renderNpcs);
   $("#npcSort").addEventListener("change", renderNpcs);
   $("#npcList").addEventListener("click", handleNpcAction);
+  $("#npcModal")?.addEventListener("click", handleNpcAction);
+  $("#npcDetail")?.addEventListener("click", handleNpcAction);
+  $("#npcDetail")?.addEventListener("change", handleNpcDetailChange);
+  $("#npcDetail")?.addEventListener("submit", saveNpcModalEdit);
 
   $("#sourceForm").addEventListener("submit", saveSource);
   $("#toggleSourceComposer").addEventListener("click", () => toggleComposer("source"));
@@ -324,6 +331,7 @@ function bindEvents() {
   $("#journeyDetail")?.addEventListener("submit", saveJourneyModalEdit);
   $("#journeyDetail")?.addEventListener("submit", handleJourneyCommentSubmit);
   document.addEventListener("keydown", handleJourneyKeydown);
+  document.addEventListener("keydown", handleNpcKeydown);
 
   $("#settingsForm").addEventListener("submit", saveSettings);
   $("#exportData").addEventListener("click", exportData);
@@ -1290,8 +1298,14 @@ async function syncStateFromServer() {
 
 function showView(view) {
   activeView = viewTitles[view] && canAccessView(view) ? view : "dashboard";
+  if (activeView !== "npcs") {
+    selectedNpcId = "";
+    npcModalEditId = "";
+    document.body.classList.remove("npc-modal-open");
+  }
   if (activeView !== "journey") {
     selectedJourneyEntryId = "";
+    journeyModalEditId = "";
     document.body.classList.remove("journey-modal-open");
   }
   applyActiveViewState();
@@ -1736,47 +1750,78 @@ function handleNpcAction(event) {
   if (!button) {
     return;
   }
-  if (!isAdmin()) {
-    return;
-  }
+  const action = button.dataset.action;
   const id = button.dataset.id;
   const npc = state.npcs.find((item) => item.id === id);
 
-  if (button.dataset.action === "edit-npc" && npc) {
-    $("#npcId").value = npc.id;
-    $("#npcName").value = npc.name;
-    $("#npcImage").value = npc.image;
-    renderImagePreview("npcImagePreview", npc.image || "");
-    $("#npcRole").value = npc.role;
-    $("#npcTags").value = npc.tags;
-    $("#npcSummary").value = npc.summary;
-    $("#npcDescription").value = npc.description;
-    $("#npcFinanceType").value = npc.financeType;
-    $("#npcFinanceAmount").value = copperToGpInput(npc.financeAmountCopper);
-    $("#npcFormTitle").textContent = "Editar NPC";
-    toggleComposer("npc", true, { silent: true });
-    showView("npcs");
+  if (action === "select-npc" && npc) {
+    selectedNpcId = id;
+    npcModalEditId = "";
+    renderNpcs();
+    return;
   }
 
-  if (button.dataset.action === "delete-npc" && confirm("Remover este NPC?")) {
+  if (action === "close-npc-modal") {
+    closeNpcModal();
+    return;
+  }
+
+  if (action === "edit-npc" && npc && isAdmin()) {
+    selectedNpcId = id;
+    npcModalEditId = id;
+    renderNpcs();
+    return;
+  }
+
+  if (action === "cancel-npc-edit") {
+    npcModalEditId = "";
+    renderNpcs();
+    return;
+  }
+
+  if (action === "clear-npc-modal-image") {
+    const image = $("#npcModalImage");
+    const upload = $("#npcModalImageUpload");
+    if (image) image.value = "";
+    if (upload) upload.value = "";
+    renderImagePreview("npcModalImagePreview", "");
+    return;
+  }
+
+  if (action === "delete-npc" && npc && isAdmin() && confirm("Remover este NPC?")) {
     addDeletedRecord("npc", id);
     state.financeSources
       .filter((source) => source.linkedNpcId === id)
       .forEach((source) => addDeletedRecord("source", source.id));
     state.npcs = state.npcs.filter((item) => item.id !== id);
     state.financeSources = state.financeSources.filter((source) => source.linkedNpcId !== id);
+    if (selectedNpcId === id) {
+      selectedNpcId = "";
+      npcModalEditId = "";
+    }
     saveState();
     render();
     showToast("NPC removido.");
   }
 }
 
+
 function renderNpcs() {
   renderNpcRoleOptions();
+  const list = $("#npcList");
+  const detail = $("#npcDetail");
+  const modal = $("#npcModal");
+  if (!list || !detail || !modal) {
+    return;
+  }
   const query = ($("#npcSearch")?.value || "").trim().toLowerCase();
   const roleFilter = $("#npcRoleFilter")?.value || "all";
   const sort = $("#npcSort")?.value || "name";
-  const key = getCacheKey(state.revision, query, roleFilter, sort, isAdmin());
+  if (selectedNpcId && !state.npcs.some((npc) => npc.id === selectedNpcId)) {
+    selectedNpcId = "";
+    npcModalEditId = "";
+  }
+  const key = getCacheKey(state.revision, query, roleFilter, sort, selectedNpcId, npcModalEditId, isAdmin());
   let npcs = getCachedValue(renderCache.npcsHtml, key, () => state.npcs.filter((npc) => {
     const haystack = `${npc.name} ${npc.role} ${npc.tags} ${npc.summary} ${npc.description}`.toLowerCase();
     return (!query || haystack.includes(query)) && (roleFilter === "all" || npc.role === roleFilter);
@@ -1798,7 +1843,13 @@ function renderNpcs() {
   const html = npcs.length
     ? npcs.map(renderNpcCard).join("")
     : renderEmpty("Nenhum NPC encontrado", "A lista de NPCs não tem resultados para os filtros atuais.");
-  setHtmlIfChanged($("#npcList"), html);
+  setHtmlIfChanged(list, html);
+  const selectedNpc = selectedNpcId ? state.npcs.find((npc) => npc.id === selectedNpcId) : null;
+  const detailKey = getCacheKey(state.revision, selectedNpc?.id || "none", selectedNpc?.updatedAt || 0, npcModalEditId, isAdmin());
+  const detailHtml = getCachedValue(renderCache.npcDetailHtml, detailKey, () => renderNpcDetail(selectedNpc));
+  setHtmlIfChanged(detail, detailHtml);
+  modal.hidden = !selectedNpc;
+  document.body.classList.toggle("npc-modal-open", Boolean(selectedNpc));
 }
 
 function renderNpcRoleOptions() {
@@ -1814,35 +1865,185 @@ function renderNpcRoleOptions() {
 
 function renderNpcCard(npc) {
   const initials = getInitials(npc.name);
-  const impact = npc.financeType !== "none" && npc.financeAmountCopper > 0
-    ? `<span class="chip ${npc.financeType === "income" ? "income" : "expense"}">${npc.financeType === "income" ? "Receita" : "Despesa"} ${formatCopper(npc.financeAmountCopper)}/30 dias</span>`
-    : "";
-
   return `
     <article class="npc-card">
-      <div class="npc-card-body">
-        <div class="npc-portrait">
-          ${npc.image ? `<img src="${escapeAttr(npc.image)}" alt="${escapeAttr(npc.name)}">` : `<span>${escapeHtml(initials)}</span>`}
-        </div>
-        <div class="npc-info">
+      <button class="npc-card-open" type="button" data-action="select-npc" data-id="${escapeAttr(npc.id)}">
+        <span class="npc-portrait">
+          ${npc.image ? `<img src="${escapeAttr(npc.image)}" alt="${escapeAttr(npc.name)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(initials)}</span>`}
+        </span>
+        <span class="npc-card-title">${escapeHtml(npc.name)}</span>
+        <span class="npc-meta">${escapeHtml(npc.role || "Sem função")}</span>
+        ${npc.tags ? `<span class="npc-card-tags">${npc.tags.split(",").slice(0, 3).map((tag) => `<span class="chip">${escapeHtml(tag.trim())}</span>`).join("")}</span>` : ""}
+      </button>
+      ${isAdmin() ? `<button class="icon-button npc-card-delete" type="button" title="Remover NPC" data-action="delete-npc" data-id="${escapeAttr(npc.id)}">✕</button>` : ""}
+    </article>
+  `;
+}
+
+function renderNpcDetail(npc) {
+  if (!npc) {
+    return "";
+  }
+  if (npcModalEditId === npc.id && isAdmin()) {
+    return renderNpcEditForm(npc);
+  }
+  const initials = getInitials(npc.name);
+  const impact = npc.financeType !== "none" && npc.financeAmountCopper > 0
+    ? `<span class="chip ${npc.financeType === "income" ? "income" : "expense"}">${npc.financeType === "income" ? "Receita" : "Despesa"} ${formatCopper(npc.financeAmountCopper)}/30 dias</span>`
+    : `<span class="chip">Sem impacto financeiro</span>`;
+  return `
+    <article class="npc-detail-card">
+      <header>
+        <div>
+          <p class="eyebrow">NPC da base</p>
           <h3>${escapeHtml(npc.name)}</h3>
-          <div class="npc-meta">${escapeHtml(npc.role || "Sem função")}</div>
-          ${npc.summary ? `<p>${escapeHtml(npc.summary)}</p>` : ""}
-          ${npc.description ? `<p>${escapeHtml(npc.description)}</p>` : ""}
-          <div class="chip-row">
-            ${npc.tags ? npc.tags.split(",").map((tag) => `<span class="chip">${escapeHtml(tag.trim())}</span>`).join("") : ""}
+          <div class="chip-row compact">
+            <span class="chip">${escapeHtml(npc.role || "Sem função")}</span>
             ${impact}
           </div>
-          ${isAdmin() ? `
-            <div class="card-actions">
-              <button class="icon-button" type="button" title="Editar NPC" data-action="edit-npc" data-id="${escapeAttr(npc.id)}">✎</button>
-              <button class="icon-button" type="button" title="Remover NPC" data-action="delete-npc" data-id="${escapeAttr(npc.id)}">✕</button>
-            </div>
-          ` : ""}
+        </div>
+        <div class="card-actions">
+          ${isAdmin() ? `<button class="icon-button" type="button" title="Editar NPC" data-action="edit-npc" data-id="${escapeAttr(npc.id)}">✎</button>` : ""}
+          ${isAdmin() ? `<button class="icon-button" type="button" title="Remover NPC" data-action="delete-npc" data-id="${escapeAttr(npc.id)}">✕</button>` : ""}
+          <button class="icon-button" type="button" title="Fechar NPC" data-action="close-npc-modal">×</button>
+        </div>
+      </header>
+      <div class="npc-detail-layout">
+        <div class="npc-detail-image">
+          ${npc.image ? `<img src="${escapeAttr(npc.image)}" alt="${escapeAttr(npc.name)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(initials)}</span>`}
+        </div>
+        <div class="npc-detail-copy">
+          ${npc.summary ? `<p class="npc-summary">${escapeHtml(npc.summary)}</p>` : ""}
+          ${npc.description ? `<p>${nl2br(npc.description)}</p>` : `<p class="muted">Nenhuma descrição foi registrada.</p>`}
+          ${npc.tags ? `<div class="chip-row">${npc.tags.split(",").map((tag) => `<span class="chip">${escapeHtml(tag.trim())}</span>`).join("")}</div>` : ""}
         </div>
       </div>
     </article>
   `;
+}
+
+function renderNpcEditForm(npc) {
+  return `
+    <article class="npc-detail-card npc-edit-card">
+      <header>
+        <div>
+          <p class="eyebrow">Editar NPC</p>
+          <h3>${escapeHtml(npc.name)}</h3>
+        </div>
+        <div class="card-actions">
+          <button class="icon-button" type="button" title="Cancelar edição" data-action="cancel-npc-edit" data-id="${escapeAttr(npc.id)}">×</button>
+        </div>
+      </header>
+      <form class="stacked-form npc-modal-edit-form" data-npc-id="${escapeAttr(npc.id)}">
+        <label>
+          Imagem do NPC
+          <input id="npcModalImageUpload" type="file" accept="image/*">
+          <input id="npcModalImage" type="hidden" value="${escapeAttr(npc.image || "")}">
+        </label>
+        <div class="image-preview" id="npcModalImagePreview">
+          ${npc.image ? `<img src="${escapeAttr(npc.image)}" alt="${escapeAttr(npc.name)}" loading="lazy" decoding="async">` : ""}
+        </div>
+        <div class="form-row">
+          <label>
+            Nome
+            <input name="name" required maxlength="80" autocomplete="off" value="${escapeAttr(npc.name)}">
+          </label>
+          <label>
+            Função
+            <input name="role" maxlength="50" value="${escapeAttr(npc.role)}">
+          </label>
+        </div>
+        <label>
+          Ordenação
+          <input name="tags" maxlength="80" value="${escapeAttr(npc.tags)}">
+        </label>
+        <label>
+          Resumo breve
+          <input name="summary" maxlength="140" value="${escapeAttr(npc.summary)}">
+        </label>
+        <label>
+          Descrição
+          <textarea name="description" rows="5">${escapeHtml(npc.description || "")}</textarea>
+        </label>
+        <div class="form-row">
+          <label>
+            Impacto mensal
+            <select name="financeType">
+              <option value="none" ${npc.financeType === "none" ? "selected" : ""}>Nenhum</option>
+              <option value="income" ${npc.financeType === "income" ? "selected" : ""}>Receita</option>
+              <option value="expense" ${npc.financeType === "expense" ? "selected" : ""}>Despesa</option>
+            </select>
+          </label>
+          <label>
+            Valor em gp
+            <input name="financeAmount" type="number" min="0" step="0.1" value="${escapeAttr(copperToGpInput(npc.financeAmountCopper))}">
+          </label>
+        </div>
+        <div class="button-row">
+          <button class="button primary" type="submit">Salvar NPC</button>
+          <button class="button ghost" type="button" data-action="clear-npc-modal-image">Remover imagem</button>
+          <button class="button ghost" type="button" data-action="cancel-npc-edit" data-id="${escapeAttr(npc.id)}">Cancelar</button>
+        </div>
+      </form>
+    </article>
+  `;
+}
+
+function handleNpcDetailChange(event) {
+  if (event.target?.id === "npcModalImageUpload") {
+    handleImageUpload(event, "npcModalImage", "npcModalImagePreview");
+  }
+}
+
+function saveNpcModalEdit(event) {
+  if (!event.target.classList.contains("npc-modal-edit-form")) {
+    return;
+  }
+  event.preventDefault();
+  if (!isAdmin()) {
+    showToast("Somente o Mestre pode salvar NPCs.");
+    return;
+  }
+  const npc = state.npcs.find((item) => item.id === event.target.dataset.npcId);
+  if (!npc) {
+    return;
+  }
+  const name = event.target.elements.name?.value.trim() || "";
+  if (!name) {
+    showToast("Informe o nome do NPC.");
+    return;
+  }
+  const nextNpc = {
+    ...npc,
+    name,
+    image: $("#npcModalImage")?.value || "",
+    role: event.target.elements.role?.value.trim() || "",
+    tags: event.target.elements.tags?.value.trim() || "",
+    summary: event.target.elements.summary?.value.trim() || "",
+    description: event.target.elements.description?.value.trim() || "",
+    financeType: event.target.elements.financeType?.value || "none",
+    financeAmountCopper: gpToCopper(Number(event.target.elements.financeAmount?.value) || 0),
+    updatedAt: Date.now()
+  };
+  const index = state.npcs.findIndex((item) => item.id === npc.id);
+  state.npcs[index] = nextNpc;
+  syncNpcFinanceSource(nextNpc);
+  npcModalEditId = "";
+  saveState();
+  render();
+  showToast("NPC salvo.");
+}
+
+function handleNpcKeydown(event) {
+  if (event.key === "Escape" && selectedNpcId) {
+    closeNpcModal();
+  }
+}
+
+function closeNpcModal() {
+  selectedNpcId = "";
+  npcModalEditId = "";
+  renderNpcs();
 }
 
 function syncNpcFinanceSource(npc) {
