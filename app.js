@@ -57,6 +57,9 @@ let syncTimer = null;
 let syncInFlight = false;
 let lastPermissionKey = "";
 let selectedJourneyEntryId = "";
+let journeyModalEditId = "";
+let lastSyncedRevision = 0;
+let lastSyncedStateSnapshot = null;
 
 const renderCache = {
   calendarEntries: { key: "", value: [] },
@@ -129,6 +132,7 @@ async function init() {
   initializeDateSelects();
   initializeComposerState();
   state = await loadSharedState();
+  setSyncedStateBaseline(state);
   restoreSession();
   populateStaticForms();
   applyActiveViewState();
@@ -316,6 +320,8 @@ function bindEvents() {
   $("#journeyGallery")?.addEventListener("click", handleJourneyAction);
   $("#journeyModal")?.addEventListener("click", handleJourneyAction);
   $("#journeyDetail")?.addEventListener("click", handleJourneyAction);
+  $("#journeyDetail")?.addEventListener("change", handleJourneyDetailChange);
+  $("#journeyDetail")?.addEventListener("submit", saveJourneyModalEdit);
   $("#journeyDetail")?.addEventListener("submit", handleJourneyCommentSubmit);
   document.addEventListener("keydown", handleJourneyKeydown);
 
@@ -406,6 +412,7 @@ function freshState() {
     startingBalanceCopper: gpToCopper(200),
     revision: 1,
     updatedAt: Date.now(),
+    deletedRecords: [],
     activeUserId: null,
     users: [
       {
@@ -710,6 +717,7 @@ function normalizeState(value) {
     startingBalanceCopper: toSafeCopper(data.startingBalanceCopper, fallback.startingBalanceCopper),
     revision: Math.max(0, Number.parseInt(data.revision, 10) || fallback.revision || 0),
     updatedAt: Number(data.updatedAt) || fallback.updatedAt || Date.now(),
+    deletedRecords: Array.isArray(data.deletedRecords) ? data.deletedRecords.map(normalizeDeletedRecord).filter(Boolean).slice(-500) : [],
     activeUserId,
     users,
     rooms: Array.isArray(data.rooms) ? data.rooms.map(normalizeRoom) : fallback.rooms,
@@ -740,7 +748,21 @@ function normalizeUser(user) {
     name: user?.name?.trim() || (role === userRoles.admin ? "Gabriel Vieira" : "Jogador"),
     role,
     pin: String(role === userRoles.admin ? (user?.pin || "310898") : (user?.pin || "")),
-    createdAt: Number(user?.createdAt) || Date.now()
+    createdAt: Number(user?.createdAt) || Date.now(),
+    updatedAt: Number(user?.updatedAt) || Number(user?.createdAt) || Date.now()
+  };
+}
+
+function normalizeDeletedRecord(record) {
+  const type = String(record?.type || "").trim();
+  const id = String(record?.id || "").trim();
+  if (!type || !id) {
+    return null;
+  }
+  return {
+    type,
+    id,
+    deletedAt: Number(record?.deletedAt) || Date.now()
   };
 }
 
@@ -768,13 +790,15 @@ function ensureCanonicalUsers(users) {
   } else {
     cleaned.unshift({
       ...CANONICAL_MASTER,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      updatedAt: Date.now()
     });
   }
 
   return cleaned.length ? cleaned : [{
     ...CANONICAL_MASTER,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   }];
 }
 function normalizeRoom(room) {
@@ -1026,6 +1050,52 @@ function saveLocalState(nextState) {
   }
 }
 
+function getSavableStateSnapshot(nextState) {
+  const snapshot = JSON.parse(JSON.stringify(nextState || {}));
+  delete snapshot.activeUserId;
+  delete snapshot._baseRevision;
+  delete snapshot._changedFields;
+  return snapshot;
+}
+
+function setSyncedStateBaseline(nextState) {
+  lastSyncedRevision = Number(nextState?.revision) || 0;
+  lastSyncedStateSnapshot = getSavableStateSnapshot(nextState);
+}
+
+function changedSinceBaseline(nextState, field) {
+  if (!lastSyncedStateSnapshot) {
+    return true;
+  }
+  return JSON.stringify(nextState?.[field]) !== JSON.stringify(lastSyncedStateSnapshot?.[field]);
+}
+
+function getChangedFieldsForSave(nextState) {
+  const fields = [];
+  ["currentDay", "startingBalanceCopper", "autoProcessRecurring", "market"].forEach((field) => {
+    if (changedSinceBaseline(nextState, field)) {
+      fields.push(field);
+    }
+  });
+  const nextNotes = nextState?.campfire?.legionNotes || "";
+  const baseNotes = lastSyncedStateSnapshot?.campfire?.legionNotes || "";
+  if (!lastSyncedStateSnapshot || nextNotes !== baseNotes) {
+    fields.push("campfire.legionNotes");
+  }
+  return fields;
+}
+
+function addDeletedRecord(type, id, deletedAt = Date.now()) {
+  if (!type || !id) {
+    return;
+  }
+  const records = Array.isArray(state.deletedRecords) ? state.deletedRecords : [];
+  state.deletedRecords = records
+    .filter((record) => !(record.type === type && record.id === id))
+    .concat({ type, id, deletedAt })
+    .slice(-500);
+}
+
 
 let saveTimer = null;
 let saveInFlight = false;
@@ -1036,8 +1106,11 @@ function saveState(nextState = state, options = {}) {
   nextState.revision = (Number(nextState.revision) || 0) + 1;
   nextState.updatedAt = Date.now();
   const payloadState = { ...nextState };
+  payloadState.deletedRecords = Array.isArray(payloadState.deletedRecords) ? payloadState.deletedRecords.slice(-500) : [];
+  payloadState._baseRevision = lastSyncedRevision;
+  payloadState._changedFields = getChangedFieldsForSave(payloadState);
   delete payloadState.activeUserId;
-  saveLocalState(payloadState);
+  saveLocalState(getSavableStateSnapshot(payloadState));
   pendingPayload = JSON.stringify(payloadState);
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushStateSave, options.immediate ? 0 : 350);
@@ -1153,8 +1226,9 @@ async function persistState(payload) {
       return false;
     }
     const text = await response.text();
-    if (text.trim()) {
+    if (text.trim() && !pendingPayload) {
       state = normalizeState(JSON.parse(text));
+      setSyncedStateBaseline(state);
       saveLocalState(state);
       applySessionToState();
       renderPermissions();
@@ -1183,7 +1257,7 @@ function startStateSync() {
 }
 
 async function syncStateFromServer() {
-  if (syncInFlight) {
+  if (syncInFlight || saveInFlight || pendingPayload) {
     return;
   }
   syncInFlight = true;
@@ -1201,6 +1275,7 @@ async function syncStateFromServer() {
     const remoteRevision = Number(remote.revision) || 0;
     if (remoteRevision > localRevision) {
       state = remote;
+      setSyncedStateBaseline(state);
       saveLocalState(state);
       applySessionToState();
       render();
@@ -1560,6 +1635,7 @@ function handleRoomAction(event) {
   }
 
   if (button.dataset.action === "delete-room" && confirm("Remover esta sala especial?")) {
+    addDeletedRecord("room", id);
     state.rooms = state.rooms.filter((room) => room.id !== id);
     saveState();
     render();
@@ -1683,6 +1759,10 @@ function handleNpcAction(event) {
   }
 
   if (button.dataset.action === "delete-npc" && confirm("Remover este NPC?")) {
+    addDeletedRecord("npc", id);
+    state.financeSources
+      .filter((source) => source.linkedNpcId === id)
+      .forEach((source) => addDeletedRecord("source", source.id));
     state.npcs = state.npcs.filter((item) => item.id !== id);
     state.financeSources = state.financeSources.filter((source) => source.linkedNpcId !== id);
     saveState();
@@ -1916,6 +1996,7 @@ function handleSourceAction(event) {
   }
 
   if (button.dataset.action === "delete-source" && confirm("Remover este contrato?")) {
+    addDeletedRecord("source", id);
     state.financeSources = state.financeSources.filter((item) => item.id !== id);
     saveState();
     render();
@@ -2100,6 +2181,7 @@ function handleLedgerAction(event) {
     return;
   }
   if (confirm("Remover este movimento?")) {
+    addDeletedRecord("ledger", button.dataset.id);
     state.ledger = state.ledger.filter((entry) => entry.id !== button.dataset.id);
     saveState();
     render();
@@ -2324,6 +2406,7 @@ function handleCalendarAction(event) {
     showView("calendar");
   }
   if (button.dataset.action === "delete-event" && confirm("Remover este evento?")) {
+    addDeletedRecord("event", id);
     state.events = state.events.filter((item) => item.id !== id);
     saveState();
     render();
@@ -2884,7 +2967,8 @@ function saveUser(event) {
     name: $("#userName").value.trim(),
     role: $("#userRole").value === userRoles.admin ? userRoles.admin : userRoles.player,
     pin: $("#userPin").value.trim(),
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   };
   if (!payload.name) {
     showToast("Informe um nome para o usuário.");
@@ -2892,7 +2976,7 @@ function saveUser(event) {
   }
   const existingIndex = state.users.findIndex((user) => user.id === id);
   if (existingIndex >= 0) {
-    state.users[existingIndex] = { ...state.users[existingIndex], ...payload, createdAt: state.users[existingIndex].createdAt || Date.now() };
+    state.users[existingIndex] = { ...state.users[existingIndex], ...payload, createdAt: state.users[existingIndex].createdAt || Date.now(), updatedAt: Date.now() };
   } else {
     state.users.push(payload);
   }
@@ -2919,6 +3003,7 @@ function handleUserAction(event) {
     $("#userManagementPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   if (button.dataset.action === "delete-user" && confirm(`Remover o usuário ${user.name}?`)) {
+    addDeletedRecord("user", user.id);
     state.users = state.users.filter((item) => item.id !== user.id);
     if (sessionUserId === user.id) {
       sessionUserId = null;
@@ -3351,20 +3436,23 @@ function renderJourney() {
   }
   if (selectedJourneyEntryId && !state.journey.entries.some((entry) => entry.id === selectedJourneyEntryId)) {
     selectedJourneyEntryId = "";
+    journeyModalEditId = "";
   }
   if (selectedJourneyEntryId && entries.length && !entries.some((entry) => entry.id === selectedJourneyEntryId)) {
     selectedJourneyEntryId = "";
+    journeyModalEditId = "";
   }
   if (!entries.length) {
     selectedJourneyEntryId = "";
+    journeyModalEditId = "";
   }
-  const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeySort")?.value || "name", selectedJourneyEntryId, getActiveUserId(), isAdmin());
+  const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeySort")?.value || "name", selectedJourneyEntryId, journeyModalEditId, getActiveUserId(), isAdmin());
   const galleryHtml = getCachedValue(renderCache.journeyGalleryHtml, key, () => entries.length
     ? entries.map(renderJourneyCard).join("")
     : renderEmpty("Jornada vazia", "Adicione uma imagem, um nome e uma descrição para começar o diário da mesa."));
   setHtmlIfChanged(gallery, galleryHtml);
   const selectedEntry = selectedJourneyEntryId ? state.journey.entries.find((entry) => entry.id === selectedJourneyEntryId) : null;
-  const detailKey = getCacheKey(state.revision, selectedEntry?.id || "none", selectedEntry?.updatedAt || 0, selectedEntry?.comments.length || 0, getActiveUserId(), isAdmin());
+  const detailKey = getCacheKey(state.revision, selectedEntry?.id || "none", selectedEntry?.updatedAt || 0, selectedEntry?.comments.length || 0, journeyModalEditId, getActiveUserId(), isAdmin());
   const detailHtml = getCachedValue(renderCache.journeyDetailHtml, detailKey, () => renderJourneyDetail(selectedEntry));
   setHtmlIfChanged(detail, detailHtml);
   modal.hidden = !selectedEntry;
@@ -3423,6 +3511,9 @@ function renderJourneyDetail(entry) {
   if (!entry) {
     return "";
   }
+  if (journeyModalEditId === entry.id && canManageJourneyEntry(entry)) {
+    return renderJourneyEditForm(entry);
+  }
   const canRemove = canManageJourneyEntry(entry);
   const comments = entry.comments.length
     ? entry.comments
@@ -3463,6 +3554,51 @@ function renderJourneyDetail(entry) {
         </form>
         <div class="journey-comment-list">${comments}</div>
       </section>
+    </article>
+  `;
+}
+
+function renderJourneyEditForm(entry) {
+  return `
+    <article class="journey-detail-card journey-edit-card">
+      <header>
+        <div>
+          <p class="eyebrow">Editar lembranÃ§a</p>
+          <h3>${escapeHtml(entry.title)}</h3>
+        </div>
+        <div class="card-actions">
+          <button class="icon-button" type="button" title="Cancelar ediÃ§Ã£o" data-action="cancel-journey-edit" data-id="${escapeAttr(entry.id)}">Ã—</button>
+        </div>
+      </header>
+      <form class="stacked-form journey-modal-edit-form" data-entry-id="${escapeAttr(entry.id)}">
+        <label>
+          Imagem
+          <input id="journeyModalImageUpload" type="file" accept="image/*">
+          <input id="journeyModalImage" type="hidden" value="${escapeAttr(entry.image || "")}">
+        </label>
+        <div class="image-preview" id="journeyModalImagePreview">
+          ${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : ""}
+        </div>
+        <div class="form-row">
+          <label>
+            TÃ­tulo
+            <input name="title" maxlength="100" autocomplete="off" value="${escapeAttr(entry.title)}">
+          </label>
+          <label>
+            NÃ­vel
+            <input name="level" maxlength="12" autocomplete="off" value="${escapeAttr(entry.level)}">
+          </label>
+        </div>
+        <label>
+          DescriÃ§Ã£o
+          <textarea name="description" rows="6" maxlength="1200">${escapeHtml(entry.description || "")}</textarea>
+        </label>
+        <div class="button-row">
+          <button class="button primary" type="submit">Salvar lembranÃ§a</button>
+          <button class="button ghost" type="button" data-action="clear-journey-modal-image">Remover imagem</button>
+          <button class="button ghost" type="button" data-action="cancel-journey-edit" data-id="${escapeAttr(entry.id)}">Cancelar</button>
+        </div>
+      </form>
     </article>
   `;
 }
@@ -3535,6 +3671,7 @@ function handleJourneyAction(event) {
   const id = button.dataset.id;
   if (action === "select-journey" && id) {
     selectedJourneyEntryId = id;
+    journeyModalEditId = "";
     renderJourney();
     return;
   }
@@ -3543,8 +3680,25 @@ function handleJourneyAction(event) {
     return;
   }
   if (action === "edit-journey" && id) {
-    loadJourneyEntry(id);
-    closeJourneyModal();
+    const entry = state.journey.entries.find((item) => item.id === id);
+    if (entry && canManageJourneyEntry(entry)) {
+      selectedJourneyEntryId = id;
+      journeyModalEditId = id;
+      renderJourney();
+    }
+    return;
+  }
+  if (action === "cancel-journey-edit") {
+    journeyModalEditId = "";
+    renderJourney();
+    return;
+  }
+  if (action === "clear-journey-modal-image") {
+    const image = $("#journeyModalImage");
+    const upload = $("#journeyModalImageUpload");
+    if (image) image.value = "";
+    if (upload) upload.value = "";
+    renderImagePreview("journeyModalImagePreview", "");
     return;
   }
   if (action === "delete-journey" && id) {
@@ -3553,9 +3707,11 @@ function handleJourneyAction(event) {
       return;
     }
     if (confirm(`Remover ${entry.title} da Jornada?`)) {
+      addDeletedRecord("journeyEntry", id);
       state.journey.entries = state.journey.entries.filter((item) => item.id !== id);
       if (selectedJourneyEntryId === id) {
         selectedJourneyEntryId = "";
+        journeyModalEditId = "";
       }
       saveState();
       renderJourney();
@@ -3566,6 +3722,42 @@ function handleJourneyAction(event) {
   if (action === "delete-journey-comment") {
     deleteJourneyComment(button.dataset.entryId, button.dataset.commentId);
   }
+}
+
+function handleJourneyDetailChange(event) {
+  if (event.target?.id === "journeyModalImageUpload") {
+    handleImageUpload(event, "journeyModalImage", "journeyModalImagePreview");
+  }
+}
+
+function saveJourneyModalEdit(event) {
+  if (!event.target.classList.contains("journey-modal-edit-form")) {
+    return;
+  }
+  event.preventDefault();
+  const entry = state.journey.entries.find((item) => item.id === event.target.dataset.entryId);
+  if (!entry || !canManageJourneyEntry(entry)) {
+    showToast("VocÃª sÃ³ pode editar lembranÃ§as que criou.");
+    return;
+  }
+  const title = event.target.elements.title?.value.trim() || "";
+  if (!title) {
+    showToast("Informe um tÃ­tulo para a lembranÃ§a.");
+    return;
+  }
+  const index = state.journey.entries.findIndex((item) => item.id === entry.id);
+  state.journey.entries[index] = {
+    ...entry,
+    title,
+    level: normalizeJourneyLevel(event.target.elements.level?.value),
+    image: $("#journeyModalImage")?.value || "",
+    description: event.target.elements.description?.value.trim() || "",
+    updatedAt: Date.now()
+  };
+  journeyModalEditId = "";
+  saveState();
+  renderJourney();
+  showToast("LembranÃ§a atualizada.");
 }
 
 function handleJourneyCommentSubmit(event) {
@@ -3594,7 +3786,6 @@ function handleJourneyCommentSubmit(event) {
     heroName: hero?.characterName || "",
     createdAt: Date.now()
   });
-  entry.updatedAt = Date.now();
   textarea.value = "";
   saveState();
   renderJourney();
@@ -3609,6 +3800,7 @@ function handleJourneyKeydown(event) {
 
 function closeJourneyModal() {
   selectedJourneyEntryId = "";
+  journeyModalEditId = "";
   renderJourney();
 }
 
@@ -3656,8 +3848,8 @@ function deleteJourneyComment(entryId, commentId) {
     return;
   }
   if (confirm("Remover este comentário?")) {
+    addDeletedRecord("journeyComment", comment.id);
     entry.comments = entry.comments.filter((item) => item.id !== comment.id);
-    entry.updatedAt = Date.now();
     saveState();
     renderJourney();
     showToast("Comentário removido.");
@@ -4053,7 +4245,6 @@ function saveCampfireGoal(event) {
   } else {
     heroPayload.goals.push(payload);
   }
-  heroPayload.updatedAt = Date.now();
   saveState();
   clearCampfireGoalForm({ silent: true });
   renderCampfire();
@@ -4105,6 +4296,7 @@ function handleCampfireAction(event) {
       return;
     }
     if (confirm(`Remover o personagem ${hero.characterName}?`)) {
+      addDeletedRecord("campfireHero", hero.id);
       state.campfire.heroes = state.campfire.heroes.filter((item) => item.id !== hero.id);
       if ($("#campfireHeroId").value === hero.id) {
         clearCampfireHeroForm();
@@ -4138,8 +4330,8 @@ function handleCampfireAction(event) {
       return;
     }
     if (confirm("Remover este objetivo?")) {
+      addDeletedRecord("campfireGoal", goalId);
       hero.goals = hero.goals.filter((goal) => goal.id !== goalId);
-      hero.updatedAt = Date.now();
       saveState();
       renderCampfire();
       showToast("Objetivo removido.");
