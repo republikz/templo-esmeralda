@@ -3563,11 +3563,11 @@ function renderJourneyEditForm(entry) {
     <article class="journey-detail-card journey-edit-card">
       <header>
         <div>
-          <p class="eyebrow">Editar lembranÃ§a</p>
+          <p class="eyebrow">Editar lembrança</p>
           <h3>${escapeHtml(entry.title)}</h3>
         </div>
         <div class="card-actions">
-          <button class="icon-button" type="button" title="Cancelar ediÃ§Ã£o" data-action="cancel-journey-edit" data-id="${escapeAttr(entry.id)}">Ã—</button>
+          <button class="icon-button" type="button" title="Cancelar edição" data-action="cancel-journey-edit" data-id="${escapeAttr(entry.id)}">×</button>
         </div>
       </header>
       <form class="stacked-form journey-modal-edit-form" data-entry-id="${escapeAttr(entry.id)}">
@@ -3581,20 +3581,20 @@ function renderJourneyEditForm(entry) {
         </div>
         <div class="form-row">
           <label>
-            TÃ­tulo
+            Título
             <input name="title" maxlength="100" autocomplete="off" value="${escapeAttr(entry.title)}">
           </label>
           <label>
-            NÃ­vel
+            Nível
             <input name="level" maxlength="12" autocomplete="off" value="${escapeAttr(entry.level)}">
           </label>
         </div>
         <label>
-          DescriÃ§Ã£o
+          Descrição
           <textarea name="description" rows="6" maxlength="1200">${escapeHtml(entry.description || "")}</textarea>
         </label>
         <div class="button-row">
-          <button class="button primary" type="submit">Salvar lembranÃ§a</button>
+          <button class="button primary" type="submit">Salvar lembrança</button>
           <button class="button ghost" type="button" data-action="clear-journey-modal-image">Remover imagem</button>
           <button class="button ghost" type="button" data-action="cancel-journey-edit" data-id="${escapeAttr(entry.id)}">Cancelar</button>
         </div>
@@ -3737,12 +3737,12 @@ function saveJourneyModalEdit(event) {
   event.preventDefault();
   const entry = state.journey.entries.find((item) => item.id === event.target.dataset.entryId);
   if (!entry || !canManageJourneyEntry(entry)) {
-    showToast("VocÃª sÃ³ pode editar lembranÃ§as que criou.");
+    showToast("Você só pode editar lembranças que criou.");
     return;
   }
   const title = event.target.elements.title?.value.trim() || "";
   if (!title) {
-    showToast("Informe um tÃ­tulo para a lembranÃ§a.");
+    showToast("Informe um título para a lembrança.");
     return;
   }
   const index = state.journey.entries.findIndex((item) => item.id === entry.id);
@@ -3757,7 +3757,7 @@ function saveJourneyModalEdit(event) {
   journeyModalEditId = "";
   saveState();
   renderJourney();
-  showToast("LembranÃ§a atualizada.");
+  showToast("Lembrança atualizada.");
 }
 
 function handleJourneyCommentSubmit(event) {
