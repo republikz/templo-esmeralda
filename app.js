@@ -3750,7 +3750,7 @@ function renderJourneyDetail(entry) {
           </div>
         </div>
         <form class="journey-comment-form" data-entry-id="${escapeAttr(entry.id)}">
-          <textarea name="comment" rows="3" maxlength="500" placeholder="Escreva uma observação do seu herói..."></textarea>
+          <textarea name="comment" rows="3" maxlength="1500" placeholder="Escreva uma observação do seu herói..."></textarea>
           <button class="button subtle" type="submit">Comentar</button>
         </form>
         <div class="journey-comment-list">${comments}</div>
