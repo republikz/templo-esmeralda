@@ -1,6 +1,9 @@
 "use strict";
 
+const STORAGE_KEY = "pf2e-base-manager-v1";
+const SESSION_KEY = "pf2e-base-manager-session-v1";
 const STATE_API_URL = "/api/state";
+const SEED_STATE_URL = "./campaign-state.json";
 const AON_BASE_URL = "https://2e.aonprd.com";
 const CALENDAR_MONTHS = ["Verão", "Outono", "Caos", "Inverno", "Primavera"];
 const DAYS_PER_MONTH = 72;
@@ -180,6 +183,7 @@ function setActiveUser(userId) {
   }
   sessionUserId = nextUser.id;
   state.activeUserId = nextUser.id;
+  saveSession();
   applyAuthState();
   renderPermissions();
   render();
@@ -629,7 +633,25 @@ function freshState() {
   };
 }
 
+async function loadSeedState() {
+  try {
+    const response = await fetch(SEED_STATE_URL, { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    const text = await response.text();
+    if (!text.trim()) {
+      return null;
+    }
+    return normalizeState(JSON.parse(text));
+  } catch (error) {
+    return null;
+  }
+}
+
 async function loadSharedState() {
+  const fallback = loadLocalState();
+  const seed = await loadSeedState();
   try {
     const response = await fetch(STATE_API_URL, { cache: "no-store" });
     if (response.ok) {
@@ -638,15 +660,27 @@ async function loadSharedState() {
         const remote = normalizeState(JSON.parse(text));
         if (hasMeaningfulState(remote)) {
           setSyncedStateBaseline(remote);
+          saveLocalState(remote);
           return remote;
         }
       }
     }
   } catch (error) {
-    // API unavailable
+    // fallback below
   }
 
-  return freshState();
+  if (seed && hasMeaningfulState(seed)) {
+    saveLocalState(seed);
+    return seed;
+  }
+
+  if (hasMeaningfulState(fallback)) {
+    return fallback;
+  }
+
+  const fresh = freshState();
+  saveLocalState(fresh);
+  return fresh;
 }
 
 function loadLocalState() {
@@ -1003,6 +1037,13 @@ function normalizeStockEntry(item) {
   };
 }
 
+function saveLocalState(nextState) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+  } catch (error) {
+    // ignore local cache failures
+  }
+}
 
 function getSavableStateSnapshot(nextState) {
   const snapshot = JSON.parse(JSON.stringify(nextState || {}));
@@ -1064,6 +1105,7 @@ function saveState(nextState = state, options = {}) {
   payloadState._baseRevision = lastSyncedRevision;
   payloadState._changedFields = getChangedFieldsForSave(payloadState);
   delete payloadState.activeUserId;
+  saveLocalState(getSavableStateSnapshot(payloadState));
   pendingPayload = JSON.stringify(payloadState);
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushStateSave, options.immediate ? 0 : 350);
@@ -1093,6 +1135,45 @@ async function flushStateSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flushStateSave, 120);
   }
+}
+
+function saveSession() {
+  try {
+    if (sessionUserId) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: sessionUserId, updatedAt: Date.now() }));
+    } else {
+      localStorage.removeItem(SESSION_KEY);
+    }
+  } catch (error) {
+    // ignore local cache failures
+  }
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.userId === "string" ? parsed.userId : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function restoreSession() {
+  const userId = loadSession();
+  const user = userId ? state.users.find((entry) => entry.id === userId) : null;
+  if (user) {
+    sessionUserId = user.id;
+    state.activeUserId = user.id;
+  } else {
+    sessionUserId = null;
+    state.activeUserId = null;
+  }
+  authReady = true;
+  applyAuthState();
 }
 
 function normalizeAccessName(value) {
@@ -1146,6 +1227,7 @@ async function persistState(payload) {
       setSyncedStateBaseline(serverState);
       if (!pendingPayload) {
         state = serverState;
+        saveLocalState(state);
         applySessionToState();
         renderPermissions();
       }
@@ -1218,6 +1300,7 @@ async function syncStateFromServer() {
     if (remoteRevision > localRevision) {
       state = remote;
       setSyncedStateBaseline(state);
+      saveLocalState(state);
       applySessionToState();
       render();
       showToast("Dados sincronizados com a mesa.");
@@ -1425,6 +1508,7 @@ function toggleSidebar() {
 function logout() {
   sessionUserId = null;
   state.activeUserId = null;
+  saveSession();
   applyAuthState();
   showView("dashboard");
   render();
@@ -3156,6 +3240,7 @@ function handleAccessSubmit(event) {
     }
     sessionUserId = existing.id;
     state.activeUserId = existing.id;
+    saveSession();
     applyAuthState();
     render();
     showToast(`Bem-vindo, ${existing.name}.`);
