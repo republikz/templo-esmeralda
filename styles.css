@@ -3515,10 +3515,13 @@ body.sidebar-collapsed .sidebar-toggle span {
 .npc-card-title {
   position: relative;
   z-index: 1;
+  width: fit-content;
+  max-width: calc(100% - 22px);
+  justify-self: center;
   min-height: 0;
   display: grid;
   place-items: center;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border: 1px solid rgba(231, 197, 123, 0.3);
   border-radius: 7px;
   color: #fff5dc;
