@@ -138,7 +138,6 @@ async function init() {
   initializeDateSelects();
   initializeComposerState();
   state = await loadSharedState();
-  setSyncedStateBaseline(state);
   restoreSession();
   populateStaticForms();
   applyActiveViewState();
@@ -645,21 +644,6 @@ async function loadSeedState() {
   }
 }
 
-function hasCanonicalAdmin(users) {
-  return Array.isArray(users)
-    && users.some((user) => user.role === userRoles.admin
-      && normalizeAccessName(user.name) === normalizeAccessName("Gabriel Vieira")
-      && String(user.pin || "") === "310898");
-}
-
-
-function shouldBootstrapFromSeed(remoteState, seedState) {
-  if (hasMeaningfulState(remoteState)) {
-    return false;
-  }
-  return Boolean(seedState && hasMeaningfulState(seedState));
-}
-
 async function loadSharedState() {
   const fallback = loadLocalState();
   const seed = await loadSeedState();
@@ -670,15 +654,7 @@ async function loadSharedState() {
       if (text.trim()) {
         const remote = normalizeState(JSON.parse(text));
         if (hasMeaningfulState(remote)) {
-          if (shouldBootstrapFromSeed(remote, seed)) {
-            const canonical = seed || fallback;
-            saveLocalState(canonical);
-            void saveState(canonical);
-            return canonical;
-          }
-          if (!hasCanonicalAdmin(JSON.parse(text).users)) {
-            void saveState(remote);
-          }
+          setSyncedStateBaseline(remote);
           saveLocalState(remote);
           return remote;
         }
@@ -690,18 +666,15 @@ async function loadSharedState() {
 
   if (seed && hasMeaningfulState(seed)) {
     saveLocalState(seed);
-    void saveState(seed);
     return seed;
   }
 
   if (hasMeaningfulState(fallback)) {
-    void saveState(fallback);
     return fallback;
   }
 
   const fresh = freshState();
   saveLocalState(fresh);
-  void saveState(fresh);
   return fresh;
 }
 
@@ -1236,18 +1209,22 @@ async function persistState(payload) {
     const response = await fetch(STATE_API_URL, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
+      keepalive: payload.length < 60000,
       body: payload
     });
     if (!response.ok) {
       return false;
     }
     const text = await response.text();
-    if (text.trim() && !pendingPayload) {
-      state = normalizeState(JSON.parse(text));
-      setSyncedStateBaseline(state);
-      saveLocalState(state);
-      applySessionToState();
-      renderPermissions();
+    if (text.trim()) {
+      const serverState = normalizeState(JSON.parse(text));
+      setSyncedStateBaseline(serverState);
+      if (!pendingPayload) {
+        state = serverState;
+        saveLocalState(state);
+        applySessionToState();
+        renderPermissions();
+      }
     }
     return true;
   } catch (error) {
@@ -1266,8 +1243,19 @@ function startStateSync() {
   }, 20000);
   window.addEventListener("focus", () => void syncStateFromServer());
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) {
+    if (document.hidden) {
+      if (pendingPayload && !saveInFlight) {
+        clearTimeout(saveTimer);
+        void flushStateSave();
+      }
+    } else {
       void syncStateFromServer();
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    if (pendingPayload && !saveInFlight) {
+      clearTimeout(saveTimer);
+      void flushStateSave();
     }
   });
 }
@@ -1712,7 +1700,7 @@ function renderRooms() {
               </div>
             ` : ""}
           </header>
-          ${room.image ? `<img class="room-image" src="${escapeAttr(room.image)}" alt="${escapeAttr(room.name)}">` : ""}
+          ${room.image ? `<img class="room-image" src="${escapeAttr(room.image)}" alt="${escapeAttr(room.name)}" loading="lazy" decoding="async">` : ""}
           ${room.description ? `<p class="room-description-text">${nl2br(room.description)}</p>` : ""}
           ${room.bonus ? `<p class="room-bonus-text"><strong>Bônus:</strong> ${nl2br(room.bonus)}</p>` : ""}
           ${room.usage ? `<p class="room-usage-text"><strong>Uso:</strong> ${nl2br(room.usage)}</p>` : ""}
@@ -4456,7 +4444,7 @@ function renderCampfireHeroCard(hero) {
     <article class="hero-card ${isActiveHero ? "active" : ""}">
       <header>
         <div class="hero-avatar ${hero.image ? "has-image" : ""}" aria-hidden="true">
-          ${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}
+          ${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}
         </div>
         <div class="hero-headline">
           <h3>${escapeHtml(hero.characterName)}</h3>
