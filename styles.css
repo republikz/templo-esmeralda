@@ -3427,10 +3427,9 @@ body.sidebar-collapsed .sidebar-toggle span {
   position: relative;
   display: grid;
   width: 100%;
-  aspect-ratio: 2.7 / 4.35;
   min-height: 420px;
   margin: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(231, 197, 123, 0.42);
   border-radius: 14px;
   background:
@@ -3444,7 +3443,7 @@ body.sidebar-collapsed .sidebar-toggle span {
 .npc-card-open {
   width: 100%;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(230px, 1fr) auto auto;
   gap: 10px;
   padding: 14px;
   border: 0;
@@ -3469,13 +3468,11 @@ body.sidebar-collapsed .sidebar-toggle span {
 }
 
 .npc-card-open::after {
-  inset: 58px 16px 76px;
-  border: 1px solid rgba(208, 164, 88, 0.36);
-  border-radius: 6px;
+  display: none;
 }
 
 .npc-card .npc-portrait {
-  min-height: 260px;
+  min-height: 230px;
   aspect-ratio: 4 / 5;
   overflow: hidden;
   display: grid;
@@ -3507,7 +3504,7 @@ body.sidebar-collapsed .sidebar-toggle span {
 
 .npc-card .npc-portrait > span,
 .npc-detail-image > span {
-  min-height: 260px;
+  min-height: 230px;
   display: grid;
   place-items: center;
   color: #fff0c7;
@@ -3557,6 +3554,8 @@ body.sidebar-collapsed .sidebar-toggle span {
   flex-wrap: wrap;
   justify-content: center;
   gap: 6px;
+  min-height: 30px;
+  padding: 0 6px 2px;
 }
 
 .npc-card-delete {
@@ -3672,12 +3671,11 @@ body.npc-modal-open {
   }
 
   .npc-card {
-    aspect-ratio: auto;
     min-height: 360px;
   }
 
   .npc-card .npc-portrait {
-    min-height: 210px;
+    min-height: 200px;
   }
 
   .npc-modal {
