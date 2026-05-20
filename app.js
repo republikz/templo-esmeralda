@@ -70,6 +70,7 @@ const renderCache = {
   dueSources: { key: "", value: [] },
   combinedMarket: { key: "", value: [] },
   dashboardCalendarHtml: { key: "", value: "" },
+  dashboardJourneyHtml: { key: "", value: "" },
   dashboardMarketHtml: { key: "", value: "" },
   recentLedgerHtml: { key: "", value: "" },
   roomsHtml: { key: "", value: "" },
@@ -306,6 +307,9 @@ function bindEvents() {
   $("#toggleFinanceBalanceForm").addEventListener("click", () => toggleFinanceBalanceEditor(true));
   $("#cancelFinanceBalance").addEventListener("click", () => toggleFinanceBalanceEditor(false));
   $("#authForm").addEventListener("submit", handleAccessSubmit);
+  $("#dashboardCalendarGrid")?.addEventListener("click", handleDashboardAction);
+  $("#dashboardJourneyList")?.addEventListener("click", handleDashboardAction);
+  $("#openJourneyDashboard")?.addEventListener("click", () => showView("journey"));
 
   $("#campfireHeroForm")?.addEventListener("submit", saveCampfireHero);
   $("#toggleCampfireComposer")?.addEventListener("click", () => toggleComposer("campfire"));
@@ -1532,35 +1536,53 @@ function renderDashboardCalendar() {
   $("#dashboardCalendarCount").textContent = `${entries.length} registro${entries.length === 1 ? "" : "s"}`;
 
   const key = getCacheKey(state.revision, currentYear, currentMonth);
-  const html = getCachedValue(renderCache.dashboardCalendarHtml, key, () => Array.from({ length: DAYS_PER_MONTH }, (_, index) => index + 1).map((day) => {
-    const dayEntries = (entriesByDay.get(day) || []).sort((a, b) => a.day - b.day || a.title.localeCompare(b.title, "pt-BR"));
-    const isToday = currentParts.dayOfMonth === day;
-    const classes = ["calendar-mini-day"];
-    if (isToday) {
-      classes.push("today");
-    }
+    const html = getCachedValue(renderCache.dashboardCalendarHtml, key, () => Array.from({ length: DAYS_PER_MONTH }, (_, index) => index + 1).map((day) => {
+      const dayEntries = (entriesByDay.get(day) || []).sort((a, b) => a.day - b.day || a.title.localeCompare(b.title, "pt-BR"));
+      const isToday = currentParts.dayOfMonth === day;
+      const absoluteDay = getYearStart(state.currentDay) + currentMonth * DAYS_PER_MONTH + day;
+      const classes = ["calendar-mini-day", "dashboard-calendar-day"];
+      if (isToday) {
+        classes.push("today");
+      }
     if (dayEntries.length) {
       classes.push("has-entries");
     }
-    const visibleEntries = dayEntries.slice(0, 2);
-    const extraCount = dayEntries.length - visibleEntries.length;
-    return `
-      <article class="${classes.join(" ")}">
-        <header>
-          <strong>${String(day).padStart(2, "0")}</strong>
-          <span>${dayEntries.length ? `${dayEntries.length}` : ""}</span>
+      const visibleEntries = dayEntries.slice(0, 2);
+      const extraCount = dayEntries.length - visibleEntries.length;
+      return `
+        <button class="${classes.join(" ")}" type="button" data-action="open-calendar-day" data-day="${absoluteDay}" aria-label="${escapeAttr(`${String(day).padStart(2, "0")} de ${CALENDAR_MONTHS[currentMonth]}`)}">
+          <header>
+            <strong>${String(day).padStart(2, "0")}</strong>
+            <span>${dayEntries.length ? `${dayEntries.length}` : ""}</span>
         </header>
         <div class="calendar-mini-dots" aria-label="${escapeAttr(dayEntries.length ? `${dayEntries.length} registro${dayEntries.length === 1 ? "" : "s"}` : "Sem registros")}">
           ${visibleEntries.length
             ? visibleEntries.map(renderDashboardCalendarEntry).join("")
             : `<span class="calendar-mini-empty" aria-hidden="true"></span>`}
-          ${extraCount > 0 ? `<span class="calendar-mini-more" title="${escapeAttr(`${extraCount} registros adicionais`)}">+${extraCount}</span>` : ""}
-        </div>
-      </article>
-    `;
-  }).join(""));
-  setHtmlIfChanged(grid, html);
-}
+            ${extraCount > 0 ? `<span class="calendar-mini-more" title="${escapeAttr(`${extraCount} registros adicionais`)}">+${extraCount}</span>` : ""}
+          </div>
+        </button>
+      `;
+    }).join(""));
+    setHtmlIfChanged(grid, html);
+  }
+
+  function handleDashboardAction(event) {
+    const button = event.target.closest("[data-action]");
+    if (!button) {
+      return;
+    }
+    if (button.dataset.action === "open-calendar-day") {
+      const day = Number.parseInt(button.dataset.day, 10) || state.currentDay;
+      selectedCalendarMonthIndex = getCalendarParts(day).monthIndex;
+      selectedCalendarDay = day;
+      showView("calendar");
+      return;
+    }
+    if (button.dataset.action === "open-journey-entry") {
+      openJourneyEntry(button.dataset.id);
+    }
+  }
 
 function renderDashboardCalendarEntry(entry) {
   const classes = [
@@ -3669,6 +3691,7 @@ function showToast(message) {
 function renderDashboard() {
   renderDashboardHero();
   renderDashboardCalendar();
+  renderDashboardJourney();
   const totalItems = getMarketStockTotal();
   const nextMarketDay = getNextMarketDay();
   const marketHtml = [`<article class="ledger-item market-overview-card"><span class="eyebrow">Itens no mercado</span><strong>${totalItems}</strong></article>`,
@@ -3691,11 +3714,50 @@ function renderDashboardHero() {
   }
   const visibleGoals = hero.goals.filter((goal) => canSeeCampfireSecrets(hero) || !goal.secret);
   const goalsHtml = ["short", "medium", "long"].map((category) => {
-    const goal = visibleGoals.find((item) => item.category === category);
-    return `<article class="dash-goal goal-${category}"><strong>${escapeHtml(campfireGoalCategories[category])}</strong><p>${goal ? escapeHtml(goal.text) : "Sem objetivo visível."}${goal?.secret ? " <em>Secreto</em>" : ""}</p></article>`;
+    const goals = visibleGoals.filter((item) => item.category === category);
+    const goalList = goals.length
+      ? `<ul>${goals.map((goal) => `<li>${escapeHtml(goal.text)}${goal.secret ? " <em>Secreto</em>" : ""}</li>`).join("")}</ul>`
+      : `<p>Sem objetivo visível.</p>`;
+    return `<article class="dash-goal goal-${category}"><strong>${escapeHtml(campfireGoalCategories[category])}</strong>${goalList}</article>`;
   }).join("");
   const html = `<div class="dashboard-hero-copy"><p class="eyebrow">Seu herói</p><h2>${escapeHtml(hero.characterName)}</h2></div><div class="dashboard-hero-content"><div class="dash-hero-avatar ${hero.image ? "has-image" : ""}">${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}</div><div class="dash-goal-grid">${goalsHtml}</div></div>`;
   setHtmlIfChanged(panel, html);
+}
+
+function renderDashboardJourney() {
+  const list = $("#dashboardJourneyList");
+  if (!list) return;
+  const entries = [...state.journey.entries]
+    .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0) || a.title.localeCompare(b.title, "pt-BR"))
+    .slice(0, 4);
+  const key = getCacheKey(state.revision, entries.map((entry) => `${entry.id}:${entry.updatedAt}`).join(","));
+  const html = getCachedValue(renderCache.dashboardJourneyHtml, key, () => entries.length
+    ? entries.map(renderDashboardJourneyCard).join("")
+    : renderEmpty("Jornada vazia", "As novas lembranças da mesa aparecerão aqui."));
+  setHtmlIfChanged(list, html);
+}
+
+function renderDashboardJourneyCard(entry) {
+  return `
+    <button class="dashboard-journey-card" type="button" data-action="open-journey-entry" data-id="${escapeAttr(entry.id)}">
+      ${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}
+      <span>
+        <strong>${escapeHtml(entry.title)}</strong>
+        <small>Nível ${escapeHtml(entry.level)}</small>
+      </span>
+    </button>
+  `;
+}
+
+function openJourneyEntry(id) {
+  if (!id || !state.journey.entries.some((entry) => entry.id === id)) {
+    showView("journey");
+    return;
+  }
+  showView("journey");
+  selectedJourneyEntryId = id;
+  journeyModalEditId = "";
+  renderJourney();
 }
 
 function getUserById(userId) {

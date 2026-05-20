@@ -391,10 +391,18 @@ img {
   padding: 8px;
   border: 1px solid rgba(208, 164, 88, 0.16);
   border-radius: 6px;
+  color: inherit;
+  text-align: left;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
     rgba(18, 21, 18, 0.82);
+  cursor: pointer;
   overflow: hidden;
+}
+
+.calendar-mini-day:hover {
+  border-color: rgba(123, 227, 210, 0.54);
+  background: rgba(29, 56, 50, 0.34);
 }
 
 .calendar-mini-day.today {
@@ -3394,7 +3402,85 @@ body.sidebar-collapsed .sidebar-toggle span {
 .dash-goal.goal-medium { border-color: rgba(255, 171, 74, 0.5); }
 .dash-goal.goal-long { border-color: rgba(158, 110, 255, 0.52); }
 .dash-goal p { margin: 8px 0 0; color: rgba(247, 235, 210, 0.84); }
+.dash-goal ul {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dash-goal li {
+  padding: 8px 9px;
+  border: 1px solid rgba(231, 197, 123, 0.12);
+  border-radius: 6px;
+  color: rgba(247, 235, 210, 0.86);
+  background: rgba(0, 0, 0, 0.16);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .dash-goal em { margin-left: 6px; color: #ffd28a; font-style: normal; font-size: .72rem; text-transform: uppercase; }
+
+.dashboard-journey-panel {
+  margin-bottom: 16px;
+}
+
+.dashboard-journey-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-journey-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(231, 197, 123, 0.22);
+  border-radius: var(--radius);
+  color: inherit;
+  text-align: left;
+  background:
+    linear-gradient(180deg, rgba(255, 247, 220, 0.06), rgba(255, 255, 255, 0.02)),
+    rgba(17, 19, 17, 0.82);
+  cursor: pointer;
+}
+
+.dashboard-journey-card:hover {
+  border-color: rgba(123, 227, 210, 0.48);
+  transform: translateY(-1px);
+}
+
+.dashboard-journey-card img,
+.dashboard-journey-card .journey-image-placeholder {
+  width: 100%;
+  height: 132px;
+  display: grid;
+  place-items: center;
+  object-fit: contain;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.dashboard-journey-card strong,
+.dashboard-journey-card small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-journey-card strong {
+  color: #fff5dc;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  line-height: 1.12;
+}
+
+.dashboard-journey-card small {
+  margin-top: 4px;
+  color: #ffe9aa;
+  font-weight: 800;
+}
 
 .market-overview-card strong {
   display: block;
@@ -3412,7 +3498,8 @@ body.sidebar-collapsed .sidebar-toggle span {
   .sidebar-toggle { display: none; }
   .dashboard-hero-content,
   .dash-goal-grid,
-  .next-cycle-list { grid-template-columns: 1fr; }
+  .next-cycle-list,
+  .dashboard-journey-grid { grid-template-columns: 1fr; }
 }
 
 /* NPC gallery and modal */
