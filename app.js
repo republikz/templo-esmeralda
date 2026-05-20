@@ -46,6 +46,9 @@ const CANONICAL_MASTER = {
   pin: "310898"
 };
 
+const SYNC_INTERVAL_MS = 60000;
+const MIN_SYNC_GAP_MS = 15000;
+
 let activeView = "dashboard";
 let catalog = [];
 let catalogLoaded = false;
@@ -62,8 +65,10 @@ let selectedCalendarMonthIndex = null;
 let selectedCalendarDay = null;
 let selectedJourneyEntryId = "";
 let journeyModalEditId = "";
+let journeyCommentEditId = "";
 let lastSyncedRevision = 0;
 let lastSyncedStateSnapshot = null;
+let lastSyncStartedAt = 0;
 
 const renderCache = {
   calendarEntries: { key: "", value: [] },
@@ -930,7 +935,8 @@ function normalizeJourneyComment(comment, userLookup) {
     userName: comment?.userName?.trim() || user?.name || "Viajante",
     heroId: comment?.heroId || "",
     heroName: comment?.heroName?.trim() || "",
-    createdAt: Number(comment?.createdAt) || Date.now()
+    createdAt: Number(comment?.createdAt) || Date.now(),
+    updatedAt: Number(comment?.updatedAt) || Number(comment?.createdAt) || Date.now()
   };
 }
 
@@ -1237,11 +1243,9 @@ function startStateSync() {
     clearInterval(syncTimer);
   }
   syncTimer = setInterval(() => {
-    if (!document.hidden && !saveInFlight && !pendingPayload) {
-      void syncStateFromServer();
-    }
-  }, 20000);
-  window.addEventListener("focus", () => void syncStateFromServer());
+    requestStateSync();
+  }, SYNC_INTERVAL_MS);
+  window.addEventListener("focus", () => requestStateSync());
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       if (pendingPayload && !saveInFlight) {
@@ -1249,7 +1253,7 @@ function startStateSync() {
         void flushStateSave();
       }
     } else {
-      void syncStateFromServer();
+      requestStateSync();
     }
   });
   window.addEventListener("pagehide", () => {
@@ -1260,10 +1264,26 @@ function startStateSync() {
   });
 }
 
+function requestStateSync(options = {}) {
+  if (document.hidden || saveInFlight || pendingPayload) {
+    return;
+  }
+  const now = Date.now();
+  if (!options.force && now - lastSyncStartedAt < MIN_SYNC_GAP_MS) {
+    return;
+  }
+  void syncStateFromServer();
+}
+
 async function syncStateFromServer() {
   if (syncInFlight || saveInFlight || pendingPayload) {
     return;
   }
+  const now = Date.now();
+  if (now - lastSyncStartedAt < MIN_SYNC_GAP_MS) {
+    return;
+  }
+  lastSyncStartedAt = now;
   syncInFlight = true;
   try {
     const response = await fetch(STATE_API_URL, { cache: "no-store" });
@@ -3802,22 +3822,26 @@ function renderJourney() {
   if (selectedJourneyEntryId && !state.journey.entries.some((entry) => entry.id === selectedJourneyEntryId)) {
     selectedJourneyEntryId = "";
     journeyModalEditId = "";
+    journeyCommentEditId = "";
   }
   if (selectedJourneyEntryId && entries.length && !entries.some((entry) => entry.id === selectedJourneyEntryId)) {
     selectedJourneyEntryId = "";
     journeyModalEditId = "";
+    journeyCommentEditId = "";
   }
   if (!entries.length) {
     selectedJourneyEntryId = "";
     journeyModalEditId = "";
+    journeyCommentEditId = "";
   }
-  const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeySort")?.value || "name", selectedJourneyEntryId, journeyModalEditId, getActiveUserId(), isAdmin());
+  const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeySort")?.value || "name", selectedJourneyEntryId, journeyModalEditId, journeyCommentEditId, getActiveUserId(), isAdmin());
   const galleryHtml = getCachedValue(renderCache.journeyGalleryHtml, key, () => entries.length
     ? entries.map(renderJourneyCard).join("")
     : renderEmpty("Jornada vazia", "Adicione uma imagem, um nome e uma descrição para começar o diário da mesa."));
   setHtmlIfChanged(gallery, galleryHtml);
   const selectedEntry = selectedJourneyEntryId ? state.journey.entries.find((entry) => entry.id === selectedJourneyEntryId) : null;
-  const detailKey = getCacheKey(state.revision, selectedEntry?.id || "none", selectedEntry?.updatedAt || 0, selectedEntry?.comments.length || 0, journeyModalEditId, getActiveUserId(), isAdmin());
+  const commentsStamp = selectedEntry?.comments?.reduce((max, comment) => Math.max(max, Number(comment.updatedAt) || Number(comment.createdAt) || 0), 0) || 0;
+  const detailKey = getCacheKey(state.revision, selectedEntry?.id || "none", selectedEntry?.updatedAt || 0, selectedEntry?.comments.length || 0, commentsStamp, journeyModalEditId, journeyCommentEditId, getActiveUserId(), isAdmin());
   const detailHtml = getCachedValue(renderCache.journeyDetailHtml, detailKey, () => renderJourneyDetail(selectedEntry));
   setHtmlIfChanged(detail, detailHtml);
   modal.hidden = !selectedEntry;
@@ -3971,6 +3995,23 @@ function renderJourneyEditForm(entry) {
 function renderJourneyComment(entry, comment) {
   const author = comment.heroName || comment.userName || "Viajante";
   const canRemove = canManageJourneyComment(comment);
+  const isEditing = journeyCommentEditId === comment.id && canRemove;
+  if (isEditing) {
+    return `
+      <article class="journey-comment editing">
+        <form class="journey-comment-edit-form" data-entry-id="${escapeAttr(entry.id)}" data-comment-id="${escapeAttr(comment.id)}">
+          <label>
+            Editar comentário
+            <textarea name="comment" rows="3" maxlength="500">${escapeHtml(comment.text || "")}</textarea>
+          </label>
+          <div class="button-row compact">
+            <button class="button subtle" type="submit">Salvar</button>
+            <button class="button ghost" type="button" data-action="cancel-journey-comment-edit">Cancelar</button>
+          </div>
+        </form>
+      </article>
+    `;
+  }
   return `
     <article class="journey-comment">
       <div>
@@ -3978,7 +4019,7 @@ function renderJourneyComment(entry, comment) {
         ${comment.heroName && comment.userName ? `<span>${escapeHtml(comment.userName)}</span>` : ""}
       </div>
       <p>${nl2br(comment.text)}</p>
-      ${canRemove ? `<button class="icon-button" type="button" title="Remover comentário" data-action="delete-journey-comment" data-entry-id="${escapeAttr(entry.id)}" data-comment-id="${escapeAttr(comment.id)}">✕</button>` : ""}
+      ${canRemove ? `<div class="comment-actions"><button class="icon-button" type="button" title="Editar comentário" data-action="edit-journey-comment" data-entry-id="${escapeAttr(entry.id)}" data-comment-id="${escapeAttr(comment.id)}">✎</button><button class="icon-button" type="button" title="Remover comentário" data-action="delete-journey-comment" data-entry-id="${escapeAttr(entry.id)}" data-comment-id="${escapeAttr(comment.id)}">✕</button></div>` : ""}
     </article>
   `;
 }
@@ -4037,6 +4078,7 @@ function handleJourneyAction(event) {
   if (action === "select-journey" && id) {
     selectedJourneyEntryId = id;
     journeyModalEditId = "";
+    journeyCommentEditId = "";
     renderJourney();
     return;
   }
@@ -4049,12 +4091,28 @@ function handleJourneyAction(event) {
     if (entry && canManageJourneyEntry(entry)) {
       selectedJourneyEntryId = id;
       journeyModalEditId = id;
+      journeyCommentEditId = "";
       renderJourney();
     }
     return;
   }
   if (action === "cancel-journey-edit") {
     journeyModalEditId = "";
+    journeyCommentEditId = "";
+    renderJourney();
+    return;
+  }
+  if (action === "edit-journey-comment") {
+    const entry = state.journey.entries.find((item) => item.id === button.dataset.entryId);
+    const comment = entry?.comments.find((item) => item.id === button.dataset.commentId);
+    if (comment && canManageJourneyComment(comment)) {
+      journeyCommentEditId = comment.id;
+      renderJourney();
+    }
+    return;
+  }
+  if (action === "cancel-journey-comment-edit") {
+    journeyCommentEditId = "";
     renderJourney();
     return;
   }
@@ -4077,6 +4135,7 @@ function handleJourneyAction(event) {
       if (selectedJourneyEntryId === id) {
         selectedJourneyEntryId = "";
         journeyModalEditId = "";
+        journeyCommentEditId = "";
       }
       saveState();
       renderJourney();
@@ -4126,6 +4185,10 @@ function saveJourneyModalEdit(event) {
 }
 
 function handleJourneyCommentSubmit(event) {
+  if (event.target.classList.contains("journey-comment-edit-form")) {
+    saveJourneyCommentEdit(event);
+    return;
+  }
   if (!event.target.classList.contains("journey-comment-form")) {
     return;
   }
@@ -4149,12 +4212,34 @@ function handleJourneyCommentSubmit(event) {
     userName: user.name,
     heroId: hero?.id || "",
     heroName: hero?.characterName || "",
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   });
   textarea.value = "";
   saveState();
   renderJourney();
   showToast("Comentário adicionado.");
+}
+
+function saveJourneyCommentEdit(event) {
+  event.preventDefault();
+  const entry = state.journey.entries.find((item) => item.id === event.target.dataset.entryId);
+  const comment = entry?.comments.find((item) => item.id === event.target.dataset.commentId);
+  const text = event.target.elements.comment?.value.trim() || "";
+  if (!entry || !comment || !canManageJourneyComment(comment)) {
+    return;
+  }
+  if (!text) {
+    showToast("O comentário não pode ficar vazio.");
+    return;
+  }
+  comment.text = text;
+  comment.updatedAt = Date.now();
+  entry.updatedAt = Date.now();
+  journeyCommentEditId = "";
+  saveState();
+  renderJourney();
+  showToast("Comentário atualizado.");
 }
 
 function handleJourneyKeydown(event) {
@@ -4166,6 +4251,7 @@ function handleJourneyKeydown(event) {
 function closeJourneyModal() {
   selectedJourneyEntryId = "";
   journeyModalEditId = "";
+  journeyCommentEditId = "";
   renderJourney();
 }
 

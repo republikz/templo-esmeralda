@@ -2736,12 +2736,14 @@ body.journey-modal-open {
   border-top: 1px solid rgba(231, 197, 123, 0.16);
 }
 
-.journey-comment-form {
+.journey-comment-form,
+.journey-comment-edit-form {
   display: grid;
   gap: 10px;
 }
 
-.journey-comment-form textarea {
+.journey-comment-form textarea,
+.journey-comment-edit-form textarea {
   min-height: 84px;
   resize: vertical;
 }
@@ -2779,10 +2781,26 @@ body.journey-modal-open {
   overflow-wrap: anywhere;
 }
 
-.journey-comment .icon-button {
+.journey-comment .comment-actions {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.journey-comment.editing {
+  padding-right: 12px;
+}
+
+.journey-comment-edit-form label {
+  display: grid;
+  gap: 6px;
+  color: rgba(246, 230, 201, 0.68);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .campfire-note-summary,
