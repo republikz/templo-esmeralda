@@ -58,6 +58,8 @@ let syncInFlight = false;
 let lastPermissionKey = "";
 let selectedNpcId = "";
 let npcModalEditId = "";
+let selectedCalendarMonthIndex = null;
+let selectedCalendarDay = null;
 let selectedJourneyEntryId = "";
 let journeyModalEditId = "";
 let lastSyncedRevision = 0;
@@ -266,7 +268,9 @@ function bindEvents() {
     clearEventForm();
     toggleComposer("event", false);
   });
+  $("#calendarControls")?.addEventListener("click", handleCalendarAction);
   $("#calendarMonths").addEventListener("click", handleCalendarAction);
+  $("#calendarDayPanel")?.addEventListener("click", handleCalendarAction);
 
   $("#ledgerForm").addEventListener("submit", saveLedgerEntry);
   $("#ledgerTable").addEventListener("click", handleLedgerAction);
@@ -2397,7 +2401,14 @@ function renderCalendar() {
   const autoRecurring = $("#autoProcessRecurring");
   if (autoRecurring) autoRecurring.checked = true;
   state.autoProcessRecurring = true;
-  $("#calendarYearTitle").textContent = `Calendário do ciclo ${getCampaignYear(state.currentDay) + 1}`;
+  const currentParts = getCalendarParts(state.currentDay);
+  if (selectedCalendarMonthIndex === null || selectedCalendarMonthIndex < 0 || selectedCalendarMonthIndex >= CALENDAR_MONTHS.length) {
+    selectedCalendarMonthIndex = currentParts.monthIndex;
+  }
+  if (!selectedCalendarDay || getCampaignYear(selectedCalendarDay) !== getCampaignYear(state.currentDay) || getCalendarParts(selectedCalendarDay).monthIndex !== selectedCalendarMonthIndex) {
+    selectedCalendarDay = getYearStart(state.currentDay) + selectedCalendarMonthIndex * DAYS_PER_MONTH + currentParts.dayOfMonth;
+  }
+  $("#calendarYearTitle").textContent = `${CALENDAR_MONTHS[selectedCalendarMonthIndex]} · Ciclo ${getCampaignYear(state.currentDay) + 1}`;
   const entries = getCalendarEntries();
   const incomeTotal = entries
     .filter((entry) => entry.type === "income")
@@ -2411,41 +2422,25 @@ function renderCalendar() {
     `<span class="chip expense">Despesas no calendário: ${formatCopper(expenseTotal)}</span>`,
     `<span class="chip ${pendingCount ? "warn" : ""}">Pendências recorrentes: ${pendingCount}</span>`,
     `<span class="chip">Hoje: ${formatCalendarDate(state.currentDay)}</span>`
-  ].join("");
-  setHtmlIfChanged($("#calendarSummary"), summaryHtml);
+    ].join("");
+    setHtmlIfChanged($("#calendarSummary"), summaryHtml);
 
-  const key = getCacheKey(state.revision, getCampaignYear(state.currentDay));
-  const monthsHtml = getCachedValue(renderCache.calendarMonthsHtml, key, () => CALENDAR_MONTHS
-    .map((month, monthIndex) => {
-      const monthEntries = entries
-        .filter((entry) => getCalendarParts(entry.day).monthIndex === monthIndex)
-        .sort((a, b) => a.day - b.day || a.title.localeCompare(b.title, "pt-BR"));
-      return `
-        <section class="calendar-month">
-          <header>
-            <h3>${month}</h3>
-            <span>${monthEntries.length} registro${monthEntries.length === 1 ? "" : "s"}</span>
-          </header>
-          <div class="calendar-entry-list">
-            ${monthEntries.length ? monthEntries.map(renderCalendarEntry).join("") : renderEmpty("Sem registros", "Nenhum gasto, receita ou evento neste mês.")}
-          </div>
-        </section>
-      `;
-    })
-    .join(""));
+  const key = getCacheKey(state.revision, getCampaignYear(state.currentDay), selectedCalendarMonthIndex, selectedCalendarDay, isAdmin());
+  const monthsHtml = getCachedValue(renderCache.calendarMonthsHtml, key, () => renderCalendarMonthGrid(entries));
   setHtmlIfChanged($("#calendarMonths"), monthsHtml);
+  setHtmlIfChanged($("#calendarDayPanel"), renderCalendarDayPanel(entries));
   renderNextCycleCalendar();
 }
 
 function renderNextCycleCalendar() {
-  const calendarMonths = $("#calendarMonths");
-  if (!calendarMonths) return;
+  const calendarStage = $(".calendar-stage");
+  if (!calendarStage) return;
   let panel = $("#nextCycleCalendarPanel");
   if (!panel) {
     panel = document.createElement("section");
     panel.id = "nextCycleCalendarPanel";
     panel.className = "panel next-cycle-panel";
-    calendarMonths.insertAdjacentElement("afterend", panel);
+    calendarStage.insertAdjacentElement("afterend", panel);
   }
   const nextYear = getCampaignYear(state.currentDay) + 1;
   const rangeStart = nextYear * DAYS_PER_YEAR + 1;
@@ -2453,8 +2448,98 @@ function renderNextCycleCalendar() {
   const entries = getRecurringCalendarEntries(rangeStart, rangeEnd);
   const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.amountCopper, 0);
   const expense = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + entry.amountCopper, 0);
-  const html = `<div class="section-header"><div><p class="eyebrow">Próximo ciclo</p><h2>Ciclo ${nextYear + 1}</h2></div><div class="chip-row"><span class="chip income">Receitas: ${formatCopper(income)}</span><span class="chip expense">Despesas: ${formatCopper(expense)}</span><span class="chip">${entries.length} registro${entries.length === 1 ? "" : "s"}</span></div></div><div class="next-cycle-list">${entries.length ? entries.map(renderCalendarEntry).join("") : renderEmpty("Sem contratos no próximo ciclo", "Os contratos ativos aparecerão aqui quando tiverem datas previstas.")}</div>`;
+  const preview = entries
+    .sort((a, b) => a.day - b.day || a.title.localeCompare(b.title, "pt-BR"))
+    .slice(0, 8);
+  const html = `<div class="section-header"><div><p class="eyebrow">Próximo ciclo</p><h2>Ciclo ${nextYear + 1}</h2></div><div class="chip-row"><span class="chip income">Receitas: ${formatCopper(income)}</span><span class="chip expense">Despesas: ${formatCopper(expense)}</span><span class="chip">${entries.length} registro${entries.length === 1 ? "" : "s"}</span></div></div><div class="next-cycle-list compact">${preview.length ? preview.map(renderCalendarEntry).join("") : renderEmpty("Sem contratos no próximo ciclo", "Os contratos ativos aparecerão aqui quando tiverem datas previstas.")}</div>`;
   setHtmlIfChanged(panel, html);
+}
+
+function renderCalendarMonthGrid(entries) {
+  const monthName = CALENDAR_MONTHS[selectedCalendarMonthIndex];
+  const monthEntries = entries.filter((entry) => getCalendarParts(entry.day).monthIndex === selectedCalendarMonthIndex);
+  const entriesByDay = new Map();
+  monthEntries.forEach((entry) => {
+    const day = getCalendarParts(entry.day).dayOfMonth;
+    if (!entriesByDay.has(day)) {
+      entriesByDay.set(day, []);
+    }
+    entriesByDay.get(day).push(entry);
+  });
+  const previousMonth = (selectedCalendarMonthIndex + CALENDAR_MONTHS.length - 1) % CALENDAR_MONTHS.length;
+  const nextMonth = (selectedCalendarMonthIndex + 1) % CALENDAR_MONTHS.length;
+  return `
+    <section class="calendar-board">
+      <header class="calendar-board-head">
+        <button class="button ghost small" type="button" data-action="calendar-month" data-month="${previousMonth}" aria-label="Mês anterior">‹</button>
+        <div>
+          <p class="eyebrow">Mês aberto</p>
+          <h3>${monthName}</h3>
+        </div>
+        <button class="button ghost small" type="button" data-action="calendar-month" data-month="${nextMonth}" aria-label="Próximo mês">›</button>
+      </header>
+      <nav class="calendar-month-tabs" aria-label="Meses da campanha">
+        ${CALENDAR_MONTHS.map((month, index) => `<button class="${index === selectedCalendarMonthIndex ? "active" : ""}" type="button" data-action="calendar-month" data-month="${index}">${month}</button>`).join("")}
+      </nav>
+      <div class="calendar-grid" role="grid" aria-label="${escapeAttr(`Calendário de ${monthName}`)}">
+        ${Array.from({ length: DAYS_PER_MONTH }, (_, index) => renderCalendarDayCell(index + 1, entriesByDay.get(index + 1) || [])).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderCalendarDayCell(dayOfMonth, dayEntries) {
+  const absoluteDay = getYearStart(state.currentDay) + selectedCalendarMonthIndex * DAYS_PER_MONTH + dayOfMonth;
+  const isToday = absoluteDay === state.currentDay;
+  const isSelected = absoluteDay === selectedCalendarDay;
+  const classes = ["calendar-day-cell"];
+  if (isToday) classes.push("today");
+  if (isSelected) classes.push("selected");
+  if (dayEntries.length) classes.push("has-entries");
+  const visibleEntries = dayEntries
+    .sort((a, b) => a.day - b.day || a.title.localeCompare(b.title, "pt-BR"))
+    .slice(0, 3);
+  const income = dayEntries.filter((entry) => entry.type === "income").length;
+  const expense = dayEntries.filter((entry) => entry.type === "expense").length;
+  const events = dayEntries.filter((entry) => entry.kind === "event").length;
+  const extra = Math.max(0, dayEntries.length - visibleEntries.length);
+  return `
+    <button class="${classes.join(" ")}" type="button" data-action="calendar-day" data-day="${absoluteDay}" aria-label="${escapeAttr(`${String(dayOfMonth).padStart(2, "0")} de ${CALENDAR_MONTHS[selectedCalendarMonthIndex]}, ${dayEntries.length} registro${dayEntries.length === 1 ? "" : "s"}`)}">
+      <span class="calendar-day-number">${String(dayOfMonth).padStart(2, "0")}</span>
+      <span class="calendar-day-dots" aria-hidden="true">
+        ${income ? `<i class="calendar-mini-dot income"></i>` : ""}
+        ${expense ? `<i class="calendar-mini-dot expense"></i>` : ""}
+        ${events ? `<i class="calendar-mini-dot event"></i>` : ""}
+        ${extra ? `<em>+${extra}</em>` : ""}
+      </span>
+      <span class="calendar-day-preview">
+        ${visibleEntries.map((entry) => `<small class="${entry.type}">${escapeHtml(entry.title)}</small>`).join("")}
+      </span>
+    </button>
+  `;
+}
+
+function renderCalendarDayPanel(entries) {
+  const day = selectedCalendarDay || state.currentDay;
+  const parts = getCalendarParts(day);
+  const dayEntries = entries
+    .filter((entry) => entry.day === day)
+    .sort((a, b) => a.title.localeCompare(b.title, "pt-BR"));
+  const canAddEvent = isAuthenticated();
+  return `
+    <section class="panel calendar-selected-day">
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">${day === state.currentDay ? "Hoje no RPG" : "Dia selecionado"}</p>
+          <h2>${String(parts.dayOfMonth).padStart(2, "0")} ${getMonthArticle(CALENDAR_MONTHS[parts.monthIndex])} ${CALENDAR_MONTHS[parts.monthIndex]}</h2>
+        </div>
+        ${canAddEvent ? `<button class="button primary small" type="button" data-action="calendar-add-event" data-day="${day}">Adicionar evento</button>` : ""}
+      </div>
+      <div class="calendar-entry-list detailed">
+        ${dayEntries.length ? dayEntries.map(renderCalendarEntry).join("") : renderEmpty("Sem registros", "Nenhum evento, receita ou despesa foi marcado para este dia.")}
+      </div>
+    </section>
+  `;
 }
 
 function getCalendarEntries() {
@@ -2574,6 +2659,8 @@ function saveCalendarEvent(event) {
   } else {
     state.events.push(payload);
   }
+  selectedCalendarMonthIndex = getCalendarParts(payload.day).monthIndex;
+  selectedCalendarDay = payload.day;
   saveState();
   clearEventForm();
   toggleComposer("event", false, { silent: true });
@@ -2587,9 +2674,34 @@ function clearEventForm() {
   setDateInputs("eventDay", "eventMonth", state.currentDay);
 }
 
+function prepareEventFormForDay(day) {
+  clearEventForm();
+  setDateInputs("eventDay", "eventMonth", day);
+  toggleComposer("event", true, { silent: true });
+  $("#eventTitle")?.focus();
+}
+
 function handleCalendarAction(event) {
   const button = event.target.closest("[data-action]");
   if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  if (action === "calendar-month") {
+    selectedCalendarMonthIndex = Number.parseInt(button.dataset.month, 10);
+    selectedCalendarDay = null;
+    renderCalendar();
+    return;
+  }
+  if (action === "calendar-day") {
+    selectedCalendarDay = Number.parseInt(button.dataset.day, 10);
+    renderCalendar();
+    return;
+  }
+  if (action === "calendar-add-event") {
+    selectedCalendarDay = Number.parseInt(button.dataset.day, 10) || selectedCalendarDay || state.currentDay;
+    prepareEventFormForDay(selectedCalendarDay);
+    renderCalendar();
     return;
   }
   if (!isAdmin()) {
@@ -2597,16 +2709,18 @@ function handleCalendarAction(event) {
   }
   const id = button.dataset.id;
   const entry = state.events.find((item) => item.id === id);
-  if (button.dataset.action === "edit-event" && entry) {
+  if (action === "edit-event" && entry) {
     $("#eventId").value = entry.id;
     $("#eventTitle").value = entry.title;
     $("#eventType").value = entry.type;
     setDateInputs("eventDay", "eventMonth", entry.day);
     $("#eventDescription").value = entry.description;
+    selectedCalendarMonthIndex = getCalendarParts(entry.day).monthIndex;
+    selectedCalendarDay = entry.day;
     toggleComposer("event", true, { silent: true });
     showView("calendar");
   }
-  if (button.dataset.action === "delete-event" && confirm("Remover este evento?")) {
+  if (action === "delete-event" && confirm("Remover este evento?")) {
     addDeletedRecord("event", id);
     state.events = state.events.filter((item) => item.id !== id);
     saveState();
@@ -3750,7 +3864,7 @@ function renderJourneyDetail(entry) {
           </div>
         </div>
         <form class="journey-comment-form" data-entry-id="${escapeAttr(entry.id)}">
-          <textarea name="comment" rows="3" maxlength="1500" placeholder="Escreva uma observação do seu herói..."></textarea>
+          <textarea name="comment" rows="3" maxlength="500" placeholder="Escreva uma observação do seu herói..."></textarea>
           <button class="button subtle" type="submit">Comentar</button>
         </form>
         <div class="journey-comment-list">${comments}</div>

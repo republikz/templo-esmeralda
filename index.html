@@ -516,7 +516,7 @@
             </section>
 
             <section class="content-column">
-              <section class="panel calendar-controls">
+              <section class="panel calendar-controls" id="calendarControls">
                 <div class="section-header">
                   <div>
                     <p class="eyebrow">Ano corrente</p>
@@ -525,7 +525,10 @@
                 </div>
                 <div class="calendar-summary" id="calendarSummary"></div>
               </section>
-              <div class="calendar-months" id="calendarMonths"></div>
+              <div class="calendar-stage">
+                <div class="calendar-months" id="calendarMonths"></div>
+                <aside class="calendar-day-panel" id="calendarDayPanel"></aside>
+              </div>
             </section>
           </div>
         </section>
