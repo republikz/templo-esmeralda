@@ -4002,7 +4002,7 @@ function renderJourneyComment(entry, comment) {
         <form class="journey-comment-edit-form" data-entry-id="${escapeAttr(entry.id)}" data-comment-id="${escapeAttr(comment.id)}">
           <label>
             Editar comentário
-            <textarea name="comment" rows="3" maxlength="500">${escapeHtml(comment.text || "")}</textarea>
+            <textarea name="comment" rows="3" maxlength="1500">${escapeHtml(comment.text || "")}</textarea>
           </label>
           <div class="button-row compact">
             <button class="button subtle" type="submit">Salvar</button>
