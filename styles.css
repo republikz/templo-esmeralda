@@ -3515,16 +3515,16 @@ body.sidebar-collapsed .sidebar-toggle span {
 .npc-card-title {
   position: relative;
   z-index: 1;
-  min-height: 42px;
+  min-height: 0;
   display: grid;
   place-items: center;
-  padding: 7px 10px;
+  padding: 4px 10px;
   border: 1px solid rgba(231, 197, 123, 0.3);
   border-radius: 7px;
   color: #fff5dc;
   font-family: var(--font-display);
-  font-size: 1.16rem;
-  line-height: 1.18;
+  font-size: 1.06rem;
+  line-height: 1.08;
   text-align: center;
   overflow-wrap: anywhere;
   background:
