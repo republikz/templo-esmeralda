@@ -3443,7 +3443,7 @@ body.sidebar-collapsed .sidebar-toggle span {
 .npc-card-open {
   width: 100%;
   display: grid;
-  grid-template-rows: auto minmax(230px, 1fr) auto auto;
+  grid-template-rows: minmax(230px, 1fr) auto auto auto;
   gap: 10px;
   padding: 14px;
   border: 0;
