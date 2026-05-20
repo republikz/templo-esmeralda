@@ -2545,16 +2545,17 @@ legend {
 }
 
 .journey-collage {
-  column-count: 4;
-  column-gap: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 18px;
+  align-items: start;
 }
 
 .journey-card {
   position: relative;
-  display: inline-block;
+  display: block;
   width: 100%;
-  margin: 0 0 18px;
-  break-inside: avoid;
+  margin: 0;
   border: 1px solid rgba(231, 197, 123, 0.32);
   border-radius: 6px;
   background:
@@ -2819,7 +2820,7 @@ body.journey-modal-open {
   }
 
   .journey-collage {
-    column-count: 2;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   }
 
   .hero-card > header {
@@ -3204,7 +3205,7 @@ body.journey-modal-open {
   }
 
   .journey-collage {
-    column-count: 1;
+    grid-template-columns: 1fr;
   }
 
   .auto-process {
@@ -3416,46 +3417,82 @@ body.sidebar-collapsed .sidebar-toggle span {
 
 /* NPC gallery and modal */
 .npc-grid {
-  display: block;
-  column-count: 3;
-  column-gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 18px;
+  align-items: stretch;
 }
 
 .npc-card {
   position: relative;
-  display: inline-block;
+  display: grid;
   width: 100%;
-  margin: 0 0 16px;
-  break-inside: avoid;
-  overflow: visible;
+  aspect-ratio: 2.7 / 4.35;
+  min-height: 420px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(231, 197, 123, 0.42);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(123, 227, 210, 0.11), transparent 28%),
+    linear-gradient(180deg, rgba(21, 26, 31, 0.96), rgba(9, 10, 10, 0.98));
+  box-shadow:
+    0 26px 68px rgba(0, 0, 0, 0.48),
+    inset 0 0 0 1px rgba(255, 236, 175, 0.05);
 }
 
 .npc-card-open {
   width: 100%;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 10px;
-  padding: 10px;
+  padding: 14px;
   border: 0;
   color: inherit;
-  text-align: left;
+  text-align: center;
   background: transparent;
   cursor: pointer;
 }
 
+.npc-card-open::before,
+.npc-card-open::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.npc-card-open::before {
+  inset: 10px;
+  border: 1px solid rgba(231, 197, 123, 0.45);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 244, 199, 0.08);
+}
+
+.npc-card-open::after {
+  inset: 58px 16px 76px;
+  border: 1px solid rgba(208, 164, 88, 0.36);
+  border-radius: 6px;
+}
+
 .npc-card .npc-portrait {
-  min-height: 0;
+  min-height: 260px;
+  aspect-ratio: 4 / 5;
   overflow: hidden;
-  border: 1px solid rgba(231, 197, 123, 0.28);
-  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(231, 197, 123, 0.36);
+  border-radius: 7px;
   background:
-    linear-gradient(135deg, rgba(156, 50, 72, 0.56), rgba(15, 118, 109, 0.48)),
+    radial-gradient(circle at 50% 20%, rgba(123, 227, 210, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(19, 24, 31, 0.92), rgba(13, 54, 50, 0.54)),
     rgba(8, 10, 8, 0.7);
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.42);
 }
 
 .npc-card .npc-portrait img,
 .npc-detail-image img {
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 0;
   display: block;
   object-fit: contain;
@@ -3470,25 +3507,55 @@ body.sidebar-collapsed .sidebar-toggle span {
 
 .npc-card .npc-portrait > span,
 .npc-detail-image > span {
-  min-height: 180px;
+  min-height: 260px;
   display: grid;
   place-items: center;
   color: #fff0c7;
   font-family: var(--font-display);
-  font-size: 1.8rem;
+  font-size: 2.4rem;
 }
 
 .npc-card-title {
+  position: relative;
+  z-index: 1;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 7px 10px;
+  border: 1px solid rgba(231, 197, 123, 0.3);
+  border-radius: 7px;
   color: #fff5dc;
   font-family: var(--font-display);
-  font-size: 1.06rem;
+  font-size: 1.16rem;
   line-height: 1.18;
+  text-align: center;
   overflow-wrap: anywhere;
+  background:
+    linear-gradient(90deg, rgba(20, 26, 45, 0.95), rgba(32, 37, 60, 0.98), rgba(20, 26, 45, 0.95));
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.68);
+}
+
+.npc-card .npc-meta {
+  position: relative;
+  z-index: 1;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: center;
+  padding: 5px 13px;
+  border: 1px solid rgba(231, 197, 123, 0.42);
+  border-radius: 999px;
+  color: #ffe8aa;
+  background: rgba(12, 12, 12, 0.78);
+  font-family: var(--font-display);
+  font-size: 0.9rem;
 }
 
 .npc-card-tags {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 6px;
 }
 
@@ -3496,6 +3563,7 @@ body.sidebar-collapsed .sidebar-toggle span {
   position: absolute;
   top: 8px;
   right: 8px;
+  z-index: 2;
   background: rgba(16, 13, 10, 0.82);
 }
 
@@ -3594,13 +3662,22 @@ body.npc-modal-open {
 
 @media (max-width: 980px) {
   .npc-grid {
-    column-count: 2;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   }
 }
 
 @media (max-width: 680px) {
   .npc-grid {
-    column-count: 1;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
+
+  .npc-card {
+    aspect-ratio: auto;
+    min-height: 360px;
+  }
+
+  .npc-card .npc-portrait {
+    min-height: 210px;
   }
 
   .npc-modal {
