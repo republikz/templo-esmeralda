@@ -196,8 +196,6 @@ function bindEvents() {
   if (sidebarToggle) sidebarToggle.addEventListener("click", toggleSidebar);
   const logoutButton = $("#logoutButton");
   if (logoutButton) logoutButton.addEventListener("click", logout);
-  const newHeroButton = $("#newCampfireHeroButton");
-  if (newHeroButton) newHeroButton.addEventListener("click", openNewCampfireHeroForm);
   const refreshRooms = debounce(renderRooms, 80);
   const refreshNpcs = debounce(renderNpcs, 80);
   const refreshMarket = debounce(renderMarket, 80);
@@ -316,7 +314,7 @@ function bindEvents() {
   $("#openJourneyDashboard")?.addEventListener("click", () => showView("journey"));
 
   $("#campfireHeroForm")?.addEventListener("submit", saveCampfireHero);
-  $("#toggleCampfireComposer")?.addEventListener("click", () => toggleComposer("campfire"));
+  $("#toggleCampfireComposer")?.addEventListener("click", toggleCampfireHeroComposer);
   $("#cancelCampfireHero")?.addEventListener("click", clearCampfireHeroForm);
   $("#campfireHeroImageUpload")?.addEventListener("change", (event) => handleImageUpload(event, "campfireHeroImage", "campfireHeroImagePreview"));
   $("#clearCampfireHeroImage")?.addEventListener("click", clearCampfireHeroImage);
@@ -1398,7 +1396,7 @@ function render() {
 function renderPermissions() {
   const user = getActiveUser();
   const admin = user.role === userRoles.admin;
-  const permissionKey = getCacheKey(sessionUserId || "", state.activeUserId || "", admin ? "admin" : "player", isAuthenticated() ? "auth" : "guest");
+  const permissionKey = getCacheKey(sessionUserId || "", state.activeUserId || "", admin ? "admin" : "player", isAuthenticated() ? "auth" : "guest", activeView);
   if (lastPermissionKey === permissionKey) {
     return;
   }
@@ -1417,7 +1415,7 @@ function renderPermissions() {
 
   const dayForm = $("#dayForm");
   if (dayForm) {
-    const canEditDate = admin && activeView === "settings";
+    const canEditDate = admin;
     dayForm.hidden = !canEditDate;
     dayForm.classList.toggle("locked", !canEditDate);
     $$("#dayForm input, #dayForm select, #dayForm button").forEach((element) => {
@@ -1425,11 +1423,6 @@ function renderPermissions() {
         element.disabled = !canEditDate;
       }
     });
-  }
-  const topbarActions = $(".topbar-actions");
-  if (topbarActions) {
-    topbarActions.hidden = true;
-    topbarActions.setAttribute("aria-hidden", "true");
   }
 
   const financeBalancePanel = $("#financeBalancePanel");
@@ -3181,35 +3174,8 @@ function renderSettings() {
     state.users = repairedUsers;
     saveState();
   }
-  moveDateControlToSettings();
   $("#startingBalance").value = copperToGpInput(state.startingBalanceCopper);
   renderUsers();
-}
-
-function moveDateControlToSettings() {
-  const settings = $("#view-settings");
-  const dayForm = $("#dayForm");
-  if (!settings || !dayForm) {
-    return;
-  }
-  let panel = $("#settingsDatePanel");
-  if (!panel) {
-    panel = document.createElement("section");
-    panel.id = "settingsDatePanel";
-    panel.className = "panel settings-date-panel";
-    panel.innerHTML = `
-      <div class="section-header">
-        <div>
-          <p class="eyebrow">Calendário da campanha</p>
-          <h2>Data atual do RPG</h2>
-        </div>
-      </div>
-    `;
-    settings.insertBefore(panel, settings.firstElementChild);
-  }
-  if (!panel.contains(dayForm)) {
-    panel.appendChild(dayForm);
-  }
 }
 
 function saveFinanceBalance(event) {
@@ -3801,9 +3767,6 @@ function getCampfireEditorHero() {
   if (ownHero) {
     return ownHero;
   }
-  if (isAdmin()) {
-    return selectedHero || state.campfire.heroes[0] || null;
-  }
   return null;
 }
 
@@ -4002,7 +3965,7 @@ function renderJourneyComment(entry, comment) {
         <form class="journey-comment-edit-form" data-entry-id="${escapeAttr(entry.id)}" data-comment-id="${escapeAttr(comment.id)}">
           <label>
             Editar comentário
-            <textarea name="comment" rows="3" maxlength="1500">${escapeHtml(comment.text || "")}</textarea>
+            <textarea name="comment" rows="3" maxlength="500">${escapeHtml(comment.text || "")}</textarea>
           </label>
           <div class="button-row compact">
             <button class="button subtle" type="submit">Salvar</button>
@@ -4574,6 +4537,15 @@ function openNewCampfireHeroForm() {
   clearCampfireHeroForm();
   const body = $("#campfireComposerBody");
   if (body) body.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function toggleCampfireHeroComposer() {
+  const body = $("#campfireComposerBody");
+  if (body && !body.hidden) {
+    toggleComposer("campfire", false);
+    return;
+  }
+  openNewCampfireHeroForm();
 }
 
 function loadCampfireHero(heroId) {

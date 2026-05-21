@@ -91,19 +91,6 @@
               <button class="button ghost logout-button" id="logoutButton" type="button" hidden>Sair</button>
             </div>
           </div>
-          <div class="topbar-actions">
-            <form class="day-control calendar-date-control" id="dayForm" hidden>
-              <label>
-                Data atual no RPG
-                <span class="date-fields">
-                  <input id="currentDayInput" name="currentDayInput" type="number" min="1" max="72" step="1" value="1" aria-label="Dia do mês">
-                  <select id="currentMonthInput" name="currentMonthInput" aria-label="Mês do calendário"></select>
-                  <input id="currentCycleInput" name="currentCycleInput" type="number" min="1" max="999" step="1" value="1" aria-label="Ciclo atual" title="Ciclo">
-                </span>
-              </label>
-              <button class="button primary" type="submit">Atualizar</button>
-            </form>
-          </div>
         </header>
 
         <div class="notice" id="catalogNotice" hidden></div>
@@ -565,7 +552,7 @@
                 <p class="eyebrow">Seu personagem</p>
                 <h2 id="campfireFormTitle">Cadastrar personagem</h2>
               </div>
-              <div class="button-row compact"><button class="button primary" type="button" id="toggleCampfireComposer">Adicionar</button><button class="button subtle" type="button" id="newCampfireHeroButton">Novo personagem</button></div>
+              <button class="button primary" type="button" id="toggleCampfireComposer">Adicionar</button>
             </div>
             <div class="composer-body" id="campfireComposerBody" hidden>
               <form id="campfireHeroForm" class="stacked-form">
@@ -813,6 +800,25 @@
         </section>
 
         <section class="view" id="view-settings" data-admin-only="true">
+          <section class="panel settings-date-panel" id="settingsDatePanel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Calendário da campanha</p>
+                <h2>Data atual do RPG</h2>
+              </div>
+            </div>
+            <form class="day-control calendar-date-control" id="dayForm">
+              <label>
+                Data atual no RPG
+                <span class="date-fields">
+                  <input id="currentDayInput" name="currentDayInput" type="number" min="1" max="72" step="1" value="1" aria-label="Dia do mês">
+                  <select id="currentMonthInput" name="currentMonthInput" aria-label="Mês do calendário"></select>
+                  <input id="currentCycleInput" name="currentCycleInput" type="number" min="1" max="999" step="1" value="1" aria-label="Ciclo atual" title="Ciclo">
+                </span>
+              </label>
+              <button class="button primary" type="submit">Atualizar</button>
+            </form>
+          </section>
           <div class="two-column">
             <section class="panel form-panel">
               <div class="section-header">

@@ -1180,12 +1180,6 @@ fieldset label {
     flex-direction: column;
   }
 
-  .topbar-actions {
-    width: 100%;
-    align-items: stretch;
-    justify-content: stretch;
-  }
-
   .user-control {
     min-width: 0;
   }
@@ -1231,10 +1225,6 @@ fieldset label {
 
   .day-control input {
     width: 100%;
-  }
-
-  .topbar-actions {
-    gap: 10px;
   }
 
   .user-control,
@@ -1499,26 +1489,6 @@ select {
   font-weight: 800;
   line-height: 0.95;
   text-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: end;
-  justify-content: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-body.role-player .topbar-actions,
-body.role-player .topbar-actions * {
-  display: none !important;
-}
-
-body.role-player .topbar-actions {
-  width: 0;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
 }
 
 .profile-line {
