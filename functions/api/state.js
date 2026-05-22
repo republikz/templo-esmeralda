@@ -385,6 +385,11 @@ function mergeStates(currentState, incomingState) {
 
   merged.journey = {
     ...(current.journey || {}),
+    notificationBaselineAt: Math.max(
+      Number(current.journey?.notificationBaselineAt) || 0,
+      Number(incoming.journey?.notificationBaselineAt) || 0
+    ),
+    reads: mergeArrayById(current.journey?.reads, incoming.journey?.reads, "journeyRead", tombstones),
     entries: mergeArrayById(current.journey?.entries, incoming.journey?.entries, "journeyEntry", tombstones, mergeJourneyEntry)
   };
 

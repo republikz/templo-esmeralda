@@ -378,13 +378,13 @@ img {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 8px;
   max-height: 780px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
 }
 
 .calendar-mini-day {
-  min-height: 86px;
-  aspect-ratio: 0.92;
+  min-height: clamp(62px, 7.2vw, 86px);
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 6px;
@@ -2249,16 +2249,6 @@ legend {
   z-index: 1;
 }
 
-.campfire-note-summary {
-  margin: 12px 0 0;
-  color: rgba(246, 230, 201, 0.72);
-  font-size: 0.96rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
 .campfire-editor {
   position: relative;
   margin-bottom: 16px;
@@ -2591,10 +2581,41 @@ legend {
 
 .campfire-notes {
   margin-top: 16px;
+  background:
+    linear-gradient(135deg, rgba(219, 139, 88, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(22, 29, 31, 0.98), rgba(8, 14, 18, 0.98));
+}
+
+.campfire-notes-lead {
+  margin: -2px 0 14px;
+}
+
+.campfire-notes-read {
+  padding: clamp(14px, 2vw, 22px);
+  border: 1px solid rgba(208, 164, 88, 0.22);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(115deg, rgba(208, 164, 88, 0.09), transparent 38%),
+    rgba(5, 12, 17, 0.58);
+}
+
+.campfire-notes-copy {
+  color: rgba(246, 235, 213, 0.9);
+  font-size: clamp(1rem, 1vw, 1.08rem);
+  line-height: 1.62;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.campfire-notes-copy.empty {
+  color: rgba(243, 234, 216, 0.58);
+  font-style: italic;
 }
 
 .campfire-notes textarea {
-  min-height: 180px;
+  min-height: 320px;
+  line-height: 1.55;
+  resize: vertical;
 }
 
 .journey-intro {
@@ -2896,7 +2917,6 @@ body.journey-modal-open {
   letter-spacing: 0.08em;
 }
 
-.campfire-note-summary,
 .campfire-goal-empty,
 .hero-goal-empty {
   word-break: break-word;
@@ -3109,9 +3129,10 @@ body.journey-modal-open {
 
 .calendar-month-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 12px 16px;
-  overflow-x: auto;
+  overflow: visible;
   border-bottom: 1px solid rgba(208, 164, 88, 0.12);
 }
 
@@ -3133,10 +3154,10 @@ body.journey-modal-open {
 
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(12, minmax(66px, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 1px;
   padding: 16px;
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .calendar-day-cell {
@@ -3144,7 +3165,8 @@ body.journey-modal-open {
   display: grid;
   grid-template-rows: auto auto minmax(38px, 1fr);
   gap: 8px;
-  min-height: 112px;
+  min-height: clamp(90px, 8.2vw, 112px);
+  min-width: 0;
   padding: 10px;
   border: 1px solid rgba(208, 164, 88, 0.18);
   border-radius: 5px;
@@ -3296,7 +3318,7 @@ body.journey-modal-open {
   }
 
   .calendar-grid {
-    grid-template-columns: repeat(8, minmax(58px, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 }
 
@@ -3318,7 +3340,7 @@ body.journey-modal-open {
   }
 
   .calendar-grid {
-    grid-template-columns: repeat(6, minmax(56px, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 
@@ -3340,7 +3362,7 @@ body.journey-modal-open {
   }
 
   .calendar-grid {
-    grid-template-columns: repeat(4, minmax(54px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     padding: 10px;
   }
 
@@ -3455,11 +3477,14 @@ body.sidebar-collapsed .sidebar-toggle span {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
   gap: 16px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .dash-hero-avatar {
-  min-height: 112px;
+  width: 112px;
+  height: 112px;
+  min-height: 0;
+  align-self: start;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -3933,4 +3958,30 @@ body.npc-modal-open {
   .npc-detail-card header {
     grid-template-columns: 1fr;
   }
+}
+
+/* Long-form copy: justified with readable measure */
+.room-description-text,
+.room-bonus-text,
+.room-usage-text,
+.room-card p,
+.source-card p,
+.due-card p,
+.empty-state p,
+.campfire-intro .muted,
+.campfire-notes-copy,
+.campfire-goal-copy p,
+.hero-goal-chip span,
+.journey-intro .muted,
+.journey-description,
+.journey-comment p,
+.npc-detail-copy p,
+.npc-summary,
+.dash-goal p,
+.dashboard-hero-card .muted,
+.calendar-entry p {
+  text-align: justify;
+  text-justify: inter-word;
+  hyphens: auto;
+  overflow-wrap: anywhere;
 }

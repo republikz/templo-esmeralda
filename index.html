@@ -552,7 +552,6 @@
               Traga o nome do personagem, declare o que ele persegue e deixe a mesa responder.
               Objetivos secretos ficam guardados para o dono e para o Mestre, enquanto a galeria mostra o que pode ser dito ao redor da fogueira.
             </p>
-            <p class="campfire-note-summary" id="campfireNoteSummary"></p>
           </section>
 
           <section class="panel form-panel campfire-editor">
@@ -643,14 +642,24 @@
                 <p class="eyebrow">Minimus Legio</p>
                 <h2>Anotações do grupo</h2>
               </div>
+              <button class="button ghost" id="toggleCampfireLegionEditor" type="button">Editar</button>
             </div>
-            <form id="campfireLegionForm" class="stacked-form">
+            <p class="muted campfire-notes-lead">
+              Guardem aqui planos, relações e descobertas que mereçam voltar à conversa. Separem as anotações em parágrafos para que a memória da mesa continue legível.
+            </p>
+            <div class="campfire-notes-read" id="campfireLegionRead">
+              <div class="campfire-notes-copy" id="campfireLegionDisplay"></div>
+            </div>
+            <form id="campfireLegionForm" class="stacked-form" hidden>
               <label>
-                Texto livre
-                <textarea id="campfireLegionNotes" rows="8" spellcheck="true" placeholder="Registre planos, juramentos, sinais, combinações e tudo o que o grupo quiser preservar."></textarea>
+                Caderno da companhia
+                <textarea id="campfireLegionNotes" rows="14" spellcheck="true" placeholder="Registre planos, juramentos, sinais, combinações e tudo o que o grupo quiser preservar.
+
+Use uma linha em branco para separar novas anotações em parágrafos."></textarea>
               </label>
               <div class="button-row">
                 <button class="button primary" type="submit">Salvar anotações</button>
+                <button class="button ghost" id="cancelCampfireLegionEdit" type="button">Cancelar</button>
               </div>
             </form>
           </section>

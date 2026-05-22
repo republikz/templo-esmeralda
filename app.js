@@ -66,6 +66,7 @@ let selectedCalendarDay = null;
 let selectedJourneyEntryId = "";
 let journeyModalEditId = "";
 let journeyCommentEditId = "";
+let campfireNotesEditing = false;
 let lastSyncedRevision = 0;
 let lastSyncedStateSnapshot = null;
 let lastSyncStartedAt = 0;
@@ -323,6 +324,8 @@ function bindEvents() {
   $("#campfireGoalForm")?.addEventListener("submit", saveCampfireGoal);
   $("#cancelCampfireGoalEdit")?.addEventListener("click", clearCampfireGoalForm);
   $("#campfireLegionForm")?.addEventListener("submit", saveCampfireLegionNotes);
+  $("#toggleCampfireLegionEditor")?.addEventListener("click", () => toggleCampfireLegionEditor(true));
+  $("#cancelCampfireLegionEdit")?.addEventListener("click", () => toggleCampfireLegionEditor(false));
   $("#campfireOwnGoals")?.addEventListener("click", handleCampfireAction);
   $("#campfireGallery")?.addEventListener("click", handleCampfireAction);
 
@@ -4394,8 +4397,11 @@ function canManageJourneyComment(comment) {
 
 function renderCampfire() {
   const galleryCount = $("#campfireGalleryCount");
-  const introNote = $("#campfireNoteSummary");
   const noteField = $("#campfireLegionNotes");
+  const noteRead = $("#campfireLegionRead");
+  const noteDisplay = $("#campfireLegionDisplay");
+  const noteForm = $("#campfireLegionForm");
+  const noteToggle = $("#toggleCampfireLegionEditor");
   const ownBoard = $("#campfireOwnGoals");
   const gallery = $("#campfireGallery");
   if (!ownBoard || !gallery) {
@@ -4473,13 +4479,23 @@ function renderCampfire() {
   if (noteField && noteField.value !== state.campfire.legionNotes) {
     noteField.value = state.campfire.legionNotes || "";
   }
+  if (noteDisplay) {
+    const legionNotes = state.campfire.legionNotes || "";
+    noteDisplay.textContent = legionNotes || "Minimus Legio ainda não guardou anotações.";
+    noteDisplay.classList.toggle("empty", !legionNotes);
+  }
+  if (noteRead) {
+    noteRead.hidden = campfireNotesEditing;
+  }
+  if (noteForm) {
+    noteForm.hidden = !campfireNotesEditing;
+  }
+  if (noteToggle) {
+    noteToggle.hidden = campfireNotesEditing;
+  }
   if (galleryCount) {
     galleryCount.textContent = `${state.campfire.heroes.length} card${state.campfire.heroes.length === 1 ? "" : "s"}`;
   }
-  if (introNote) {
-    introNote.textContent = state.campfire.legionNotes || "Minimus Legio ainda não recebeu anotações.";
-  }
-
   const boardKey = getCacheKey(
     state.revision,
     hero?.id || "none",
@@ -4811,9 +4827,18 @@ function saveCampfireLegionNotes(event) {
     return;
   }
   state.campfire.legionNotes = $("#campfireLegionNotes").value.trim();
-  saveState();
+  campfireNotesEditing = false;
+  saveState(state, { immediate: true });
   renderCampfire();
   showToast("Anotações do Minimus Legio salvas.");
+}
+
+function toggleCampfireLegionEditor(open) {
+  campfireNotesEditing = Boolean(open);
+  renderCampfire();
+  if (campfireNotesEditing) {
+    $("#campfireLegionNotes")?.focus();
+  }
 }
 
 function handleCampfireAction(event) {
