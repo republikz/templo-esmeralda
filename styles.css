@@ -2543,6 +2543,14 @@ legend {
   transform: rotate(-0.35deg);
 }
 
+.journey-card.has-unread {
+  border-color: rgba(123, 227, 210, 0.54);
+  box-shadow:
+    0 0 0 1px rgba(123, 227, 210, 0.14),
+    0 18px 42px rgba(0, 0, 0, 0.34),
+    0 0 34px rgba(44, 169, 154, 0.14);
+}
+
 .journey-card:nth-child(3n) {
   transform: rotate(0.45deg);
 }
@@ -2615,6 +2623,20 @@ legend {
   background: rgba(231, 197, 123, 0.1);
   font-size: 0.75rem;
   font-weight: 800;
+}
+
+.journey-unread-badge {
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid rgba(123, 227, 210, 0.46);
+  border-radius: 999px;
+  color: #9cf3e4;
+  background: rgba(30, 115, 105, 0.2);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.1;
 }
 
 .journey-card-delete {
@@ -3420,6 +3442,23 @@ body.sidebar-collapsed .sidebar-toggle span {
   gap: 12px;
 }
 
+.dashboard-journey-comments {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(231, 197, 123, 0.16);
+}
+
+.dashboard-journey-comments .section-header {
+  margin-bottom: 0;
+}
+
+.dashboard-journey-comments h3 {
+  margin: 0;
+  font-size: clamp(1.08rem, 1.4vw, 1.32rem);
+}
+
 .dashboard-journey-card {
   display: grid;
   gap: 10px;
@@ -3438,6 +3477,17 @@ body.sidebar-collapsed .sidebar-toggle span {
 .dashboard-journey-card:hover {
   border-color: rgba(123, 227, 210, 0.48);
   transform: translateY(-1px);
+}
+
+.dashboard-journey-card.has-unread {
+  border-color: rgba(123, 227, 210, 0.46);
+  box-shadow:
+    0 0 0 1px rgba(123, 227, 210, 0.11),
+    0 14px 30px rgba(0, 0, 0, 0.2);
+}
+
+.dashboard-journey-card .journey-unread-badge {
+  justify-self: start;
 }
 
 .dashboard-journey-card img,

@@ -76,6 +76,7 @@ const renderCache = {
   combinedMarket: { key: "", value: [] },
   dashboardCalendarHtml: { key: "", value: "" },
   dashboardJourneyHtml: { key: "", value: "" },
+  dashboardJourneyCommentsHtml: { key: "", value: "" },
   dashboardMarketHtml: { key: "", value: "" },
   recentLedgerHtml: { key: "", value: "" },
   roomsHtml: { key: "", value: "" },
@@ -311,6 +312,7 @@ function bindEvents() {
   $("#authForm").addEventListener("submit", handleAccessSubmit);
   $("#dashboardCalendarGrid")?.addEventListener("click", handleDashboardAction);
   $("#dashboardJourneyList")?.addEventListener("click", handleDashboardAction);
+  $("#dashboardJourneyCommentList")?.addEventListener("click", handleDashboardAction);
   $("#openJourneyDashboard")?.addEventListener("click", () => showView("journey"));
 
   $("#campfireHeroForm")?.addEventListener("submit", saveCampfireHero);
@@ -615,6 +617,8 @@ function freshState() {
       ]
     },
     journey: {
+      notificationBaselineAt: Date.now(),
+      reads: [],
       entries: []
     },
     market: {
@@ -901,8 +905,11 @@ function normalizeCampfireGoal(goal) {
 function normalizeJourney(journey, users) {
   const source = journey && typeof journey === "object" ? journey : {};
   const userLookup = new Map((Array.isArray(users) ? users : []).map((user) => [user.id, user]));
+  const entries = Array.isArray(source.entries) ? source.entries.map((entry) => normalizeJourneyEntry(entry, userLookup)) : [];
   return {
-    entries: Array.isArray(source.entries) ? source.entries.map((entry) => normalizeJourneyEntry(entry, userLookup)) : []
+    notificationBaselineAt: Number(source.notificationBaselineAt) || getJourneyCommentActivityStamp(entries) || Date.now(),
+    reads: Array.isArray(source.reads) ? source.reads.map(normalizeJourneyRead).filter(Boolean) : [],
+    entries
   };
 }
 
@@ -938,9 +945,91 @@ function normalizeJourneyComment(comment, userLookup) {
   };
 }
 
+function normalizeJourneyRead(read) {
+  const userId = String(read?.userId || "").trim();
+  const entryId = String(read?.entryId || "").trim();
+  if (!userId || !entryId) {
+    return null;
+  }
+  return {
+    id: read?.id || getJourneyReadId(userId, entryId),
+    userId,
+    entryId,
+    readAt: Number(read?.readAt) || Date.now(),
+    createdAt: Number(read?.createdAt) || Number(read?.readAt) || Date.now(),
+    updatedAt: Number(read?.updatedAt) || Number(read?.readAt) || Date.now()
+  };
+}
+
 function normalizeJourneyLevel(level) {
   const value = String(level ?? "").trim();
   return value || "?";
+}
+
+function getJourneyReadId(userId, entryId) {
+  return `journey-read-${userId}-${entryId}`;
+}
+
+function getJourneyCommentStamp(comment) {
+  return Math.max(Number(comment?.updatedAt) || 0, Number(comment?.createdAt) || 0);
+}
+
+function getJourneyCommentActivityStamp(entries = state.journey?.entries || []) {
+  return (Array.isArray(entries) ? entries : []).reduce((entriesMax, entry) => Math.max(
+    entriesMax,
+    ...(Array.isArray(entry?.comments) ? entry.comments.map(getJourneyCommentStamp) : [0])
+  ), 0);
+}
+
+function getJourneyEntryActivityStamp(entry) {
+  return Math.max(
+    Number(entry?.updatedAt) || Number(entry?.createdAt) || 0,
+    ...(Array.isArray(entry?.comments) ? entry.comments.map(getJourneyCommentStamp) : [0])
+  );
+}
+
+function getJourneyRead(entryId, userId = getActiveUserId()) {
+  if (!entryId || !userId) {
+    return null;
+  }
+  return (state.journey?.reads || []).find((read) => read.entryId === entryId && read.userId === userId) || null;
+}
+
+function getUnreadJourneyComments(entry, userId = getActiveUserId()) {
+  if (!entry || !userId) {
+    return [];
+  }
+  const baselineAt = Number(state.journey?.notificationBaselineAt) || 0;
+  const readAt = Math.max(baselineAt, Number(getJourneyRead(entry.id, userId)?.readAt) || 0);
+  return (entry.comments || []).filter((comment) => comment.userId !== userId && getJourneyCommentStamp(comment) > readAt);
+}
+
+function markJourneyEntryRead(entryId, options = {}) {
+  const userId = getActiveUserId();
+  const entry = state.journey?.entries?.find((item) => item.id === entryId);
+  if (!entry || !userId || !getUnreadJourneyComments(entry, userId).length) {
+    return false;
+  }
+  const now = Date.now();
+  const readAt = Math.max(now, getJourneyEntryActivityStamp(entry));
+  const existing = getJourneyRead(entry.id, userId);
+  const payload = {
+    id: existing?.id || getJourneyReadId(userId, entry.id),
+    userId,
+    entryId: entry.id,
+    readAt,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+  if (existing) {
+    Object.assign(existing, payload);
+  } else {
+    state.journey.reads.push(payload);
+  }
+  if (!options.silent) {
+    saveState();
+  }
+  return true;
 }
 
 function normalizeMarket(market) {
@@ -3700,25 +3789,46 @@ function renderDashboardHero() {
 
 function renderDashboardJourney() {
   const list = $("#dashboardJourneyList");
-  if (!list) return;
+  const commentList = $("#dashboardJourneyCommentList");
+  if (!list || !commentList) return;
   const entries = [...state.journey.entries]
-    .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0) || a.title.localeCompare(b.title, "pt-BR"))
+    .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0) || a.title.localeCompare(b.title, "pt-BR"))
     .slice(0, 4);
-  const key = getCacheKey(state.revision, entries.map((entry) => `${entry.id}:${entry.updatedAt}`).join(","));
+  const key = getCacheKey(state.revision, entries.map((entry) => `${entry.id}:${entry.createdAt}:${entry.updatedAt}`).join(","));
   const html = getCachedValue(renderCache.dashboardJourneyHtml, key, () => entries.length
-    ? entries.map(renderDashboardJourneyCard).join("")
+    ? entries.map((entry) => renderDashboardJourneyCard(entry, { showUnread: false })).join("")
     : renderEmpty("Jornada vazia", "As novas lembranças da mesa aparecerão aqui."));
   setHtmlIfChanged(list, html);
+
+  const unreadEntries = state.journey.entries
+    .map((entry) => ({ entry, comments: getUnreadJourneyComments(entry) }))
+    .filter((item) => item.comments.length)
+    .sort((a, b) => Math.max(...b.comments.map(getJourneyCommentStamp)) - Math.max(...a.comments.map(getJourneyCommentStamp)) || a.entry.title.localeCompare(b.entry.title, "pt-BR"))
+    .slice(0, 4);
+  const commentsKey = getCacheKey(
+    state.revision,
+    getActiveUserId() || "",
+    unreadEntries.map(({ entry, comments }) => `${entry.id}:${comments.length}:${Math.max(...comments.map(getJourneyCommentStamp))}`).join(",")
+  );
+  const commentsHtml = getCachedValue(renderCache.dashboardJourneyCommentsHtml, commentsKey, () => unreadEntries.length
+    ? unreadEntries.map(({ entry }) => renderDashboardJourneyCard(entry)).join("")
+    : renderEmpty("Tudo lido", "Nenhum novo comentário espera por você na Jornada."));
+  setHtmlIfChanged(commentList, commentsHtml);
 }
 
-function renderDashboardJourneyCard(entry) {
+function renderDashboardJourneyCard(entry, options = {}) {
+  const unreadCount = options.showUnread === false ? 0 : getUnreadJourneyComments(entry).length;
+  const unreadBadge = unreadCount
+    ? `<em class="journey-unread-badge">${unreadCount} novo${unreadCount === 1 ? "" : "s"}</em>`
+    : "";
   return `
-    <button class="dashboard-journey-card" type="button" data-action="open-journey-entry" data-id="${escapeAttr(entry.id)}">
+    <button class="dashboard-journey-card ${unreadCount ? "has-unread" : ""}" type="button" data-action="open-journey-entry" data-id="${escapeAttr(entry.id)}">
       ${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}
       <span>
         <strong>${escapeHtml(entry.title)}</strong>
         <small>Nível ${escapeHtml(entry.level)}</small>
       </span>
+      ${unreadBadge}
     </button>
   `;
 }
@@ -3731,6 +3841,7 @@ function openJourneyEntry(id) {
   showView("journey");
   selectedJourneyEntryId = id;
   journeyModalEditId = "";
+  markJourneyEntryRead(id);
   renderJourney();
 }
 
@@ -3847,12 +3958,14 @@ function compareJourneyLevels(a, b) {
 function renderJourneyCard(entry) {
   const active = entry.id === selectedJourneyEntryId ? "active" : "";
   const canRemove = canManageJourneyEntry(entry);
+  const unreadCount = getUnreadJourneyComments(entry).length;
   return `
-    <article class="journey-card ${active}">
+    <article class="journey-card ${active} ${unreadCount ? "has-unread" : ""}">
       <button class="journey-card-open" type="button" data-action="select-journey" data-id="${escapeAttr(entry.id)}">
         ${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}
         <span class="journey-card-title">${escapeHtml(entry.title)}</span>
         <span class="journey-level">Nível ${escapeHtml(entry.level)}</span>
+        ${unreadCount ? `<em class="journey-unread-badge">${unreadCount} ${unreadCount === 1 ? "comentário novo" : "comentários novos"}</em>` : ""}
       </button>
       ${canRemove ? `<button class="icon-button journey-card-delete" type="button" title="Remover lembrança" data-action="delete-journey" data-id="${escapeAttr(entry.id)}">✕</button>` : ""}
     </article>
@@ -4042,6 +4155,7 @@ function handleJourneyAction(event) {
     selectedJourneyEntryId = id;
     journeyModalEditId = "";
     journeyCommentEditId = "";
+    markJourneyEntryRead(id);
     renderJourney();
     return;
   }
