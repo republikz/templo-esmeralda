@@ -822,6 +822,7 @@ function normalizeRoom(room) {
         startedAt: Number(room.activeUpgrade.startedAt) || Date.now()
       }
     : null;
+  const upgradeAppliedSignature = room.upgradeAppliedSignature || "";
   return {
     id: room.id || createId("room"),
     name: room.name || "Sala sem nome",
@@ -838,6 +839,7 @@ function normalizeRoom(room) {
     upgradeDurationDays,
     activeUpgrade,
     upgradeAppliedAt: Number(room.upgradeAppliedAt) || 0,
+    upgradeAppliedSignature,
     updatedAt: Number(room.updatedAt) || Date.now()
   };
 }
@@ -1741,6 +1743,30 @@ function hasRoomUpgradeConfigured(room) {
     || Boolean((room.upgradeInfo || "").trim());
 }
 
+function getRoomUpgradeSignature(room) {
+  if (!room) {
+    return "";
+  }
+  return [
+    Number(room.upgradeCostCopper) || 0,
+    Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30),
+    (room.upgradeInfo || "").trim(),
+    (room.upgradeBonus || "").trim(),
+    (room.upgradeUsage || "").trim()
+  ].join("|");
+}
+
+function isRoomUpgradeCurrentApplied(room) {
+  if (!room?.upgradeAppliedAt) {
+    return false;
+  }
+  return !room.upgradeAppliedSignature || room.upgradeAppliedSignature === getRoomUpgradeSignature(room);
+}
+
+function canShowRoomUpgradeButton(room) {
+  return hasRoomUpgradeConfigured(room) && !isRoomUpgradeCurrentApplied(room);
+}
+
 function findRoomById(roomId) {
   const id = String(roomId ?? "");
   return state.rooms.find((item) => String(item?.id ?? "") === id) || null;
@@ -1759,6 +1785,7 @@ function applyCompletedRoomUpgrades(options = {}) {
       usage: active.usage || room.usage,
       activeUpgrade: null,
       upgradeAppliedAt: Date.now(),
+      upgradeAppliedSignature: getRoomUpgradeSignature(room),
       updatedAt: Date.now()
     };
     changed = true;
@@ -1858,6 +1885,14 @@ function saveRoom(event) {
   }
   const id = $("#roomId").value;
   const existing = state.rooms.find((item) => item.id === id);
+  const upgradeDraft = {
+    upgradeInfo: $("#roomUpgradeInfo").value.trim(),
+    upgradeCostCopper: gpToCopper(Number($("#roomUpgradeCost").value) || 0),
+    upgradeBonus: $("#roomUpgradeBonus").value.trim(),
+    upgradeUsage: $("#roomUpgradeUsage").value.trim(),
+    upgradeDurationDays: Math.max(1, Number.parseInt($("#roomUpgradeDuration").value, 10) || 30)
+  };
+  const upgradeChanged = existing ? getRoomUpgradeSignature(existing) !== getRoomUpgradeSignature(upgradeDraft) : false;
   const room = {
     id: id || createId("room"),
     name: $("#roomName").value.trim(),
@@ -1867,13 +1902,10 @@ function saveRoom(event) {
     bonus: $("#roomBonus").value.trim(),
     usage: $("#roomUsage").value.trim(),
     description: $("#roomDescription").value.trim(),
-    upgradeInfo: $("#roomUpgradeInfo").value.trim(),
-    upgradeCostCopper: gpToCopper(Number($("#roomUpgradeCost").value) || 0),
-    upgradeBonus: $("#roomUpgradeBonus").value.trim(),
-    upgradeUsage: $("#roomUpgradeUsage").value.trim(),
-    upgradeDurationDays: Math.max(1, Number.parseInt($("#roomUpgradeDuration").value, 10) || 30),
-    activeUpgrade: existing?.activeUpgrade || null,
-    upgradeAppliedAt: Number(existing?.upgradeAppliedAt) || 0,
+    ...upgradeDraft,
+    activeUpgrade: upgradeChanged ? null : (existing?.activeUpgrade || null),
+    upgradeAppliedAt: upgradeChanged ? 0 : (Number(existing?.upgradeAppliedAt) || 0),
+    upgradeAppliedSignature: upgradeChanged ? "" : (existing?.upgradeAppliedSignature || ""),
     updatedAt: Date.now()
   };
 
@@ -1981,11 +2013,11 @@ function renderRooms() {
                 ${room.type ? `<span class="chip">${escapeHtml(room.type)}</span>` : ""}
                 <span class="chip">${escapeHtml(room.status)}</span>
                 ${room.activeUpgrade ? `<span class="chip warning">Upgrade em andamento</span>` : ""}
-                ${room.upgradeAppliedAt ? `<span class="chip income">Upgrade concluído</span>` : ""}
+                ${isRoomUpgradeCurrentApplied(room) ? `<span class="chip income">Upgrade concluído</span>` : ""}
               </div>
             </div>
             <div class="card-actions">
-              ${hasRoomUpgradeConfigured(room) && !room.upgradeAppliedAt ? `<button class="button subtle small" type="button" data-action="select-room-upgrade" data-id="${escapeAttr(room.id)}">${room.activeUpgrade ? "Ver upgrade" : "Upgrade"}</button>` : ""}
+              ${canShowRoomUpgradeButton(room) ? `<button class="button subtle small" type="button" data-action="select-room-upgrade" data-id="${escapeAttr(room.id)}">${room.activeUpgrade ? "Ver upgrade" : "Upgrade"}</button>` : ""}
               ${isAdmin() ? `
                 <button class="icon-button" type="button" title="Editar sala" data-action="edit-room" data-id="${escapeAttr(room.id)}">✎</button>
                 <button class="icon-button" type="button" title="Remover sala" data-action="delete-room" data-id="${escapeAttr(room.id)}">✕</button>
