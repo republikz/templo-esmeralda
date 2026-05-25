@@ -4077,7 +4077,7 @@ function renderDashboard() {
   setHtmlIfChanged($("#dashboardMarketList"), marketHtml);
   const recent = [...state.ledger].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
   const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(state.revision, recent.length, "dashboard-ledger"), () => recent.length
-    ? recent.map((entry) => `<article class="ledger-item"><strong>${escapeHtml(entry.name)}</strong><p>${formatCalendarDate(entry.day)} ? <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> ? ${formatCopper(entry.amountCopper)}</p></article>`).join("")
+    ? recent.map((entry) => `<article class="ledger-item"><strong>${escapeHtml(entry.name)}</strong><p>${formatCalendarDate(entry.day)} &middot; <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> &middot; ${formatCopper(entry.amountCopper)}</p></article>`).join("")
     : renderEmpty("Sem movimentos", "Os registros do tesouro ainda não receberam movimentos."));
   setHtmlIfChanged($("#recentLedger"), recentHtml);
 }
