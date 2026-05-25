@@ -2673,11 +2673,11 @@ legend {
 }
 
 .journey-card.has-unread {
-  border-color: var(--signal-line);
+  border-color: rgba(116, 151, 184, 0.82);
   box-shadow:
-    0 0 0 1px var(--signal-line-soft),
+    0 0 0 1px rgba(158, 190, 222, 0.34),
     0 18px 42px rgba(0, 0, 0, 0.34),
-    0 0 28px rgba(91, 67, 31, 0.18);
+    0 0 30px rgba(85, 129, 170, 0.28);
 }
 
 .journey-card:nth-child(3n) {
@@ -3623,10 +3623,11 @@ body.sidebar-collapsed .sidebar-toggle span {
 }
 
 .dashboard-journey-card.has-unread {
-  border-color: var(--signal-line);
+  border-color: rgba(116, 151, 184, 0.82);
   box-shadow:
-    0 0 0 1px var(--signal-line-soft),
-    0 14px 30px rgba(0, 0, 0, 0.2);
+    0 0 0 1px rgba(158, 190, 222, 0.34),
+    0 14px 30px rgba(0, 0, 0, 0.2),
+    0 0 24px rgba(85, 129, 170, 0.24);
 }
 
 .dashboard-journey-card .journey-unread-badge {
