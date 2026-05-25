@@ -61,6 +61,7 @@ let syncInFlight = false;
 let lastPermissionKey = "";
 let selectedNpcId = "";
 let npcModalEditId = "";
+let selectedRoomUpgradeId = "";
 let selectedCalendarMonthIndex = null;
 let selectedCalendarDay = null;
 let selectedJourneyEntryId = "";
@@ -210,6 +211,7 @@ function bindEvents() {
     event.preventDefault();
     const nextDay = getAbsoluteDayFromInputs("currentDayInput", "currentMonthInput", (Number.parseInt($("#currentCycleInput")?.value, 10) || (getCampaignYear(state.currentDay) + 1)) - 1);
     state.currentDay = nextDay;
+    applyCompletedRoomUpgrades({ silent: true });
     settleAllDue({ silent: true, system: true });
     autoRestockIfDue();
     saveState();
@@ -228,6 +230,8 @@ function bindEvents() {
   $("#roomSearch").addEventListener("input", refreshRooms);
   $("#roomFilter").addEventListener("change", renderRooms);
   $("#roomList").addEventListener("click", handleRoomAction);
+  $("#roomUpgradeModal")?.addEventListener("click", handleRoomUpgradeAction);
+  $("#roomUpgradeDetail")?.addEventListener("click", handleRoomUpgradeAction);
 
   $("#npcForm").addEventListener("submit", saveNpc);
   $("#toggleNpcComposer").addEventListener("click", () => toggleComposer("npc"));
@@ -347,6 +351,7 @@ function bindEvents() {
   $("#journeyDetail")?.addEventListener("submit", handleJourneyCommentSubmit);
   document.addEventListener("keydown", handleJourneyKeydown);
   document.addEventListener("keydown", handleNpcKeydown);
+  document.addEventListener("keydown", handleRoomUpgradeKeydown);
 
   $("#settingsForm").addEventListener("submit", saveSettings);
   $("#exportData").addEventListener("click", exportData);
@@ -801,6 +806,22 @@ function ensureCanonicalUsers(users) {
   }];
 }
 function normalizeRoom(room) {
+  const upgradeCost = toSafeCopper(room.upgradeCostCopper, gpToCopper(Number(room.upgradeCostGp) || 0));
+  const upgradeDurationDays = Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30);
+  const activeUpgrade = room.activeUpgrade && typeof room.activeUpgrade === "object"
+    ? {
+        startedDay: Math.max(1, Number.parseInt(room.activeUpgrade.startedDay, 10) || 1),
+        finishDay: Math.max(1, Number.parseInt(room.activeUpgrade.finishDay, 10) || 1),
+        costCopper: toSafeCopper(room.activeUpgrade.costCopper, upgradeCost),
+        info: room.activeUpgrade.info || room.upgradeInfo || "",
+        bonus: room.activeUpgrade.bonus || room.upgradeBonus || "",
+        usage: room.activeUpgrade.usage || room.upgradeUsage || "",
+        durationDays: Math.max(1, Number.parseInt(room.activeUpgrade.durationDays, 10) || upgradeDurationDays),
+        purchasedByUserId: room.activeUpgrade.purchasedByUserId || "",
+        purchasedByName: room.activeUpgrade.purchasedByName || "",
+        startedAt: Number(room.activeUpgrade.startedAt) || Date.now()
+      }
+    : null;
   return {
     id: room.id || createId("room"),
     name: room.name || "Sala sem nome",
@@ -810,6 +831,13 @@ function normalizeRoom(room) {
     bonus: room.bonus || "",
     usage: room.usage || "",
     description: room.description || "",
+    upgradeInfo: room.upgradeInfo || "",
+    upgradeCostCopper: upgradeCost,
+    upgradeBonus: room.upgradeBonus || "",
+    upgradeUsage: room.upgradeUsage || "",
+    upgradeDurationDays,
+    activeUpgrade,
+    upgradeAppliedAt: Number(room.upgradeAppliedAt) || 0,
     updatedAt: Number(room.updatedAt) || Date.now()
   };
 }
@@ -1389,9 +1417,13 @@ async function syncStateFromServer() {
     const remoteRevision = Number(remote.revision) || 0;
     if (remoteRevision > localRevision) {
       state = remote;
+      const upgradesApplied = applyCompletedRoomUpgrades({ silent: true });
       setSyncedStateBaseline(state);
       saveLocalState(state);
       applySessionToState();
+      if (upgradesApplied) {
+        saveState();
+      }
       render();
       showToast("Dados sincronizados com a mesa.");
     }
@@ -1413,6 +1445,9 @@ function showView(view) {
     selectedJourneyEntryId = "";
     journeyModalEditId = "";
     document.body.classList.remove("journey-modal-open");
+  }
+  if (activeView !== "rooms") {
+    closeRoomUpgradeModal({ silent: true });
   }
   applyActiveViewState();
   if (window.location.hash !== `#${activeView}`) {
@@ -1443,6 +1478,9 @@ function applyActiveViewState() {
 }
 
 function render() {
+  if (applyCompletedRoomUpgrades({ silent: true })) {
+    saveState();
+  }
   applyActiveViewState();
   setDateInputs("currentDayInput", "currentMonthInput", state.currentDay);
   const cycleInput = $("#currentCycleInput");
@@ -1693,6 +1731,125 @@ function renderDashboardCalendarEntry(entry) {
   `;
 }
 
+function hasRoomUpgradeConfigured(room) {
+  if (!room) {
+    return false;
+  }
+  return Number(room.upgradeCostCopper) > 0
+    || Boolean((room.upgradeBonus || "").trim())
+    || Boolean((room.upgradeUsage || "").trim())
+    || Boolean((room.upgradeInfo || "").trim());
+}
+
+function findRoomById(roomId) {
+  const id = String(roomId ?? "");
+  return state.rooms.find((item) => String(item?.id ?? "") === id) || null;
+}
+
+function applyCompletedRoomUpgrades(options = {}) {
+  let changed = false;
+  state.rooms = state.rooms.map((room) => {
+    const active = room?.activeUpgrade;
+    if (!active || Number(active.finishDay) > state.currentDay) {
+      return room;
+    }
+    const nextRoom = {
+      ...room,
+      bonus: active.bonus || room.bonus,
+      usage: active.usage || room.usage,
+      activeUpgrade: null,
+      upgradeAppliedAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    changed = true;
+    return nextRoom;
+  });
+  if (changed && !options.silent) {
+    showToast("Upgrade de sala concluído e aplicado automaticamente.");
+  }
+  return changed;
+}
+
+function buildRoomUpgradePreview(room) {
+  const costLabel = formatCopper(Number(room.upgradeCostCopper) || 0);
+  const durationLabel = `${Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30)} dia(s)`;
+  const bonusLabel = (room.upgradeBonus || "").trim() || "Sem alteração de bônus.";
+  const usageLabel = (room.upgradeUsage || "").trim() || "Sem alteração de uso.";
+  const infoLabel = (room.upgradeInfo || "").trim() || "Sem observações adicionais.";
+  return [
+    `Upgrade de ${room.name}`,
+    "",
+    `Valor: ${costLabel}`,
+    `Tempo de obra/reforma: ${durationLabel}`,
+    "",
+    `Informações: ${infoLabel}`,
+    "",
+    "Novo bônus:",
+    bonusLabel,
+    "",
+    "Novo uso:",
+    usageLabel
+  ].join("\n");
+}
+
+function beginRoomUpgrade(roomId) {
+  const room = findRoomById(roomId);
+  if (!room || !hasRoomUpgradeConfigured(room)) {
+    showToast("Esta sala ainda não possui upgrade configurado.");
+    return;
+  }
+  if (room.activeUpgrade) {
+    showToast(`Este upgrade já está em andamento e termina em ${formatCalendarDate(room.activeUpgrade.finishDay)}.`);
+    return;
+  }
+  if (room.upgradeAppliedAt) {
+    showToast("Esta sala já recebeu o upgrade configurado.");
+    return;
+  }
+
+  const balanceCopper = getBalanceCopper();
+  if (balanceCopper < Number(room.upgradeCostCopper || 0)) {
+    showToast(`Saldo insuficiente para o upgrade. Necessário: ${formatCopper(room.upgradeCostCopper || 0)}.`);
+    return;
+  }
+
+  const durationDays = Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30);
+  const finishDay = state.currentDay + durationDays;
+  const activeUser = getActiveUser();
+  const updatedRoom = {
+    ...room,
+    activeUpgrade: {
+      startedDay: state.currentDay,
+      finishDay,
+      costCopper: Number(room.upgradeCostCopper) || 0,
+      info: room.upgradeInfo || "",
+      bonus: room.upgradeBonus || "",
+      usage: room.upgradeUsage || "",
+      durationDays,
+      purchasedByUserId: activeUser?.id || "",
+      purchasedByName: activeUser?.name || "",
+      startedAt: Date.now()
+    },
+    updatedAt: Date.now()
+  };
+
+  state.rooms = state.rooms.map((item) => (String(item?.id ?? "") === String(roomId ?? "") ? updatedRoom : item));
+  state.ledger.push({
+    id: createId("ledger"),
+    day: state.currentDay,
+    name: `Upgrade da sala: ${room.name}`,
+    type: "expense",
+    amountCopper: Number(room.upgradeCostCopper) || 0,
+    sourceId: `room-upgrade:${room.id}`,
+    note: `Conclusão prevista para ${formatCalendarDate(finishDay)}.`,
+    createdAt: Date.now()
+  });
+  selectedRoomUpgradeId = "";
+  saveState();
+  render();
+  showToast(`Upgrade iniciado. Conclusão prevista para ${formatCalendarDate(finishDay)}.`);
+}
+
 function saveRoom(event) {
   event.preventDefault();
   if (!isAdmin()) {
@@ -1700,6 +1857,7 @@ function saveRoom(event) {
     return;
   }
   const id = $("#roomId").value;
+  const existing = state.rooms.find((item) => item.id === id);
   const room = {
     id: id || createId("room"),
     name: $("#roomName").value.trim(),
@@ -1709,6 +1867,13 @@ function saveRoom(event) {
     bonus: $("#roomBonus").value.trim(),
     usage: $("#roomUsage").value.trim(),
     description: $("#roomDescription").value.trim(),
+    upgradeInfo: $("#roomUpgradeInfo").value.trim(),
+    upgradeCostCopper: gpToCopper(Number($("#roomUpgradeCost").value) || 0),
+    upgradeBonus: $("#roomUpgradeBonus").value.trim(),
+    upgradeUsage: $("#roomUpgradeUsage").value.trim(),
+    upgradeDurationDays: Math.max(1, Number.parseInt($("#roomUpgradeDuration").value, 10) || 30),
+    activeUpgrade: existing?.activeUpgrade || null,
+    upgradeAppliedAt: Number(existing?.upgradeAppliedAt) || 0,
     updatedAt: Date.now()
   };
 
@@ -1736,6 +1901,8 @@ function clearRoomForm() {
   $("#roomImageData").value = "";
   renderImagePreview("roomImagePreview", "");
   $("#roomStatus").value = "Ativa";
+  $("#roomUpgradeCost").value = "0";
+  $("#roomUpgradeDuration").value = "30";
   $("#roomFormTitle").textContent = "Nova sala especial";
 }
 
@@ -1744,12 +1911,24 @@ function handleRoomAction(event) {
   if (!button) {
     return;
   }
+  const id = button.dataset.id;
+  const action = button.dataset.action;
+  if (action === "select-room-upgrade") {
+    event.preventDefault();
+    event.stopPropagation();
+    const room = findRoomById(id);
+    if (!room) {
+      return;
+    }
+    selectedRoomUpgradeId = String(room.id);
+    renderRoomUpgradeModal();
+    return;
+  }
   if (!isAdmin()) {
     return;
   }
-  const id = button.dataset.id;
   if (button.dataset.action === "edit-room") {
-    const room = state.rooms.find((item) => item.id === id);
+    const room = findRoomById(id);
     if (!room) {
       return;
     }
@@ -1762,6 +1941,11 @@ function handleRoomAction(event) {
     $("#roomBonus").value = room.bonus;
     $("#roomUsage").value = room.usage;
     $("#roomDescription").value = room.description;
+    $("#roomUpgradeInfo").value = room.upgradeInfo || "";
+    $("#roomUpgradeCost").value = copperToGpInput(room.upgradeCostCopper || 0);
+    $("#roomUpgradeBonus").value = room.upgradeBonus || "";
+    $("#roomUpgradeUsage").value = room.upgradeUsage || "";
+    $("#roomUpgradeDuration").value = String(Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30));
     $("#roomFormTitle").textContent = "Editar sala especial";
     toggleComposer("room", true, { silent: true });
     showView("rooms");
@@ -1782,7 +1966,7 @@ function renderRooms() {
   const key = getCacheKey(state.revision, query, filter, isAdmin());
   const rooms = getCachedValue(renderCache.roomsHtml, key, () => state.rooms
     .filter((room) => {
-      const haystack = `${room.name} ${room.type} ${room.status} ${room.bonus} ${room.usage} ${room.description}`.toLowerCase();
+      const haystack = `${room.name} ${room.type} ${room.status} ${room.bonus} ${room.usage} ${room.description} ${room.upgradeInfo || ""} ${room.upgradeBonus || ""} ${room.upgradeUsage || ""}`.toLowerCase();
       return (!query || haystack.includes(query)) && (filter === "all" || room.status === filter);
     })
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")));
@@ -1796,23 +1980,137 @@ function renderRooms() {
               <div class="chip-row">
                 ${room.type ? `<span class="chip">${escapeHtml(room.type)}</span>` : ""}
                 <span class="chip">${escapeHtml(room.status)}</span>
+                ${room.activeUpgrade ? `<span class="chip warning">Upgrade em andamento</span>` : ""}
+                ${room.upgradeAppliedAt ? `<span class="chip income">Upgrade concluído</span>` : ""}
               </div>
             </div>
-            ${isAdmin() ? `
-              <div class="card-actions">
+            <div class="card-actions">
+              ${hasRoomUpgradeConfigured(room) && !room.upgradeAppliedAt ? `<button class="button subtle small" type="button" data-action="select-room-upgrade" data-id="${escapeAttr(room.id)}">${room.activeUpgrade ? "Ver upgrade" : "Upgrade"}</button>` : ""}
+              ${isAdmin() ? `
                 <button class="icon-button" type="button" title="Editar sala" data-action="edit-room" data-id="${escapeAttr(room.id)}">✎</button>
                 <button class="icon-button" type="button" title="Remover sala" data-action="delete-room" data-id="${escapeAttr(room.id)}">✕</button>
-              </div>
-            ` : ""}
+              ` : ""}
+            </div>
           </header>
           ${room.image ? `<img class="room-image" src="${escapeAttr(room.image)}" alt="${escapeAttr(room.name)}" loading="lazy" decoding="async">` : ""}
           ${room.description ? `<p class="room-description-text">${nl2br(room.description)}</p>` : ""}
           ${room.bonus ? `<p class="room-bonus-text"><strong>Bônus:</strong> ${nl2br(room.bonus)}</p>` : ""}
           ${room.usage ? `<p class="room-usage-text"><strong>Uso:</strong> ${nl2br(room.usage)}</p>` : ""}
+          ${hasRoomUpgradeConfigured(room) ? `<p class="room-upgrade-text"><strong>Upgrade:</strong> ${escapeHtml(formatCopper(room.upgradeCostCopper || 0))} · ${Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30)} dia(s)</p>` : ""}
+          ${room.activeUpgrade ? `<p class="room-upgrade-text warning"><strong>Conclusão prevista:</strong> ${escapeHtml(formatCalendarDate(room.activeUpgrade.finishDay))}</p>` : ""}
         </article>
       `).join("")
     : renderEmpty("Nenhuma sala encontrada", "A lista de salas não tem resultados para os filtros atuais.");
   setHtmlIfChanged($("#roomList"), html);
+  renderRoomUpgradeModal();
+}
+
+function renderRoomUpgradeDetail(room) {
+  if (!room) {
+    return "";
+  }
+  const active = room.activeUpgrade;
+  const canPurchase = !active && !room.upgradeAppliedAt && hasRoomUpgradeConfigured(room);
+  const currentBalance = getBalanceCopper();
+  const hasBalance = currentBalance >= Number(room.upgradeCostCopper || 0);
+  const article = getMonthArticle(CALENDAR_MONTHS[getCalendarParts(active?.finishDay || state.currentDay).monthIndex]);
+  return `
+    <article class="room-upgrade-modal-card">
+      <header>
+        <div>
+          <p class="eyebrow">Upgrade da sala</p>
+          <h3>${escapeHtml(room.name)}</h3>
+        </div>
+        <button class="icon-button" type="button" title="Fechar upgrade" aria-label="Fechar upgrade" data-action="close-room-upgrade">X</button>
+      </header>
+      <div class="room-upgrade-modal-grid">
+        <section class="room-upgrade-modal-col">
+          <p class="muted"><strong>Informações:</strong> ${escapeHtml((room.upgradeInfo || "").trim() || "Sem observações adicionais.")}</p>
+          <p class="muted"><strong>Valor:</strong> ${formatCopper(room.upgradeCostCopper || 0)}</p>
+          <p class="muted"><strong>Tempo:</strong> ${Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30)} dia(s)</p>
+        </section>
+        <section class="room-upgrade-modal-col">
+          <p class="eyebrow">Novo bônus</p>
+          <p class="room-upgrade-preview-copy">${nl2br((room.upgradeBonus || "").trim() || "Sem alteração de bônus.")}</p>
+          <p class="eyebrow">Novo uso</p>
+          <p class="room-upgrade-preview-copy">${nl2br((room.upgradeUsage || "").trim() || "Sem alteração de uso.")}</p>
+        </section>
+      </div>
+      ${active ? `
+        <div class="room-upgrade-modal-status">
+          <span class="chip warning">Em andamento</span>
+          <span class="muted">Termina em ${formatCalendarDate(active.finishDay)} (${article} ${CALENDAR_MONTHS[getCalendarParts(active.finishDay).monthIndex]}).</span>
+        </div>
+      ` : room.upgradeAppliedAt ? `
+        <div class="room-upgrade-modal-status">
+          <span class="chip income">Upgrade já concluído</span>
+        </div>
+      ` : `
+        <div class="room-upgrade-modal-status">
+          <span class="chip ${hasBalance ? "income" : "expense"}">${hasBalance ? "Saldo suficiente" : "Saldo insuficiente"}</span>
+          <span class="muted">Saldo atual: ${formatCopper(currentBalance)}</span>
+        </div>
+      `}
+      <div class="button-row">
+        ${canPurchase ? `<button class="button primary" type="button" data-action="purchase-room-upgrade" data-id="${escapeAttr(room.id)}" ${hasBalance ? "" : "disabled"}>Confirmar compra do upgrade</button>` : ""}
+        <button class="button ghost" type="button" data-action="close-room-upgrade">Fechar</button>
+      </div>
+    </article>
+  `;
+}
+
+function handleRoomUpgradeAction(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  if (action === "close-room-upgrade") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeRoomUpgradeModal();
+    return;
+  }
+  if (action === "purchase-room-upgrade") {
+    event.preventDefault();
+    event.stopPropagation();
+    const id = button.dataset.id || selectedRoomUpgradeId;
+    if (!id) {
+      return;
+    }
+    beginRoomUpgrade(id);
+  }
+}
+
+function handleRoomUpgradeKeydown(event) {
+  if (event.key === "Escape" && selectedRoomUpgradeId) {
+    closeRoomUpgradeModal();
+  }
+}
+
+function renderRoomUpgradeModal() {
+  const modal = $("#roomUpgradeModal");
+  const detail = $("#roomUpgradeDetail");
+  if (!modal || !detail) {
+    return;
+  }
+  const selected = selectedRoomUpgradeId ? findRoomById(selectedRoomUpgradeId) : null;
+  setHtmlIfChanged(detail, selected ? renderRoomUpgradeDetail(selected) : "");
+  modal.hidden = !selected;
+  document.body.classList.toggle("room-upgrade-modal-open", Boolean(selected));
+}
+
+function closeRoomUpgradeModal(options = {}) {
+  selectedRoomUpgradeId = "";
+  if (options.silent) {
+    const modal = $("#roomUpgradeModal");
+    const detail = $("#roomUpgradeDetail");
+    if (modal) modal.hidden = true;
+    if (detail) setHtmlIfChanged(detail, "");
+    document.body.classList.remove("room-upgrade-modal-open");
+    return;
+  }
+  renderRoomUpgradeModal();
 }
 
 function saveNpc(event) {
@@ -2616,7 +2914,7 @@ function renderCalendarDayCell(dayOfMonth, dayEntries) {
     .slice(0, 3);
   const income = dayEntries.filter((entry) => entry.type === "income").length;
   const expense = dayEntries.filter((entry) => entry.type === "expense").length;
-  const events = dayEntries.filter((entry) => entry.kind === "event").length;
+  const events = dayEntries.filter((entry) => entry.kind === "event" || entry.kind === "room-upgrade").length;
   const extra = Math.max(0, dayEntries.length - visibleEntries.length);
   return `
     <button class="${classes.join(" ")}" type="button" data-action="calendar-day" data-day="${absoluteDay}" aria-label="${escapeAttr(`${String(dayOfMonth).padStart(2, "0")} de ${CALENDAR_MONTHS[selectedCalendarMonthIndex]}, ${dayEntries.length} registro${dayEntries.length === 1 ? "" : "s"}`)}">
@@ -2688,7 +2986,20 @@ function getCalendarEntries() {
         description: entry.description,
         status: "event"
       }));
-    return [...ledgerEntries, ...eventEntries, ...getRecurringCalendarEntries(rangeStart, rangeEnd)];
+    const roomUpgradeEntries = state.rooms
+      .filter((room) => room?.activeUpgrade && inRange(Number(room.activeUpgrade.finishDay)))
+      .map((room) => ({
+        id: `room-upgrade-${room.id}`,
+        roomId: room.id,
+        kind: "room-upgrade",
+        day: Number(room.activeUpgrade.finishDay),
+        title: `Upgrade concluído: ${room.name}`,
+        type: "warning",
+        amountCopper: 0,
+        description: "A obra termina neste dia e os novos bônus/uso da sala entram em vigor automaticamente.",
+        status: "scheduled"
+      }));
+    return [...ledgerEntries, ...eventEntries, ...roomUpgradeEntries, ...getRecurringCalendarEntries(rangeStart, rangeEnd)];
   });
 }
 
@@ -2737,15 +3048,16 @@ function renderCalendarEntry(entry) {
     registered: "Registrado",
     event: getEventTypeLabel(entry.type)
   }[entry.status] || "Registro";
+  const entryTypeClass = entry.type === "income" ? "income" : entry.type === "expense" ? "expense" : entry.type === "warning" ? "warning" : "";
 
   return `
-    <article class="calendar-entry ${entry.type} ${entry.status}">
+    <article class="calendar-entry ${entryTypeClass} ${entry.status}">
       <div>
         <span class="calendar-date">${formatCalendarDate(entry.day)}</span>
         <h4>${escapeHtml(entry.title)}</h4>
         <p>${escapeHtml(entry.description || statusLabel)}</p>
         <div class="chip-row">
-          <span class="chip ${entry.type === "income" ? "income" : entry.type === "expense" ? "expense" : ""}">${statusLabel}</span>
+          <span class="chip ${entryTypeClass}">${statusLabel}</span>
           ${amount ? `<span class="chip">${amount}</span>` : ""}
         </div>
       </div>

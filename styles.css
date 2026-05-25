@@ -1990,6 +1990,10 @@ button:focus-visible,
   --icon: var(--icon-close);
 }
 
+.icon-button[data-action="close-room-upgrade"] {
+  --icon: var(--icon-close);
+}
+
 .icon-button:hover {
   border-color: var(--jade-line-strong);
   color: #c5e8dc;
@@ -3988,4 +3992,98 @@ body.npc-modal-open {
   text-justify: inter-word;
   hyphens: auto;
   overflow-wrap: anywhere;
+}
+
+.form-subsection {
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: var(--radius-md);
+  padding: 0.9rem;
+  margin: 0.25rem 0 0.4rem;
+  display: grid;
+  gap: 0.65rem;
+  background: color-mix(in srgb, var(--panel) 82%, var(--ink-900));
+}
+
+.form-subsection legend {
+  padding: 0 0.45rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--gold-400) 76%, var(--snow-200));
+}
+
+.room-upgrade-text {
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  color: color-mix(in srgb, var(--snow-100) 90%, var(--line));
+}
+
+.room-upgrade-text.warning {
+  color: color-mix(in srgb, var(--gold-300) 90%, var(--snow-100));
+}
+
+.chip.warning {
+  border-color: color-mix(in srgb, var(--gold-500) 70%, var(--line));
+  color: color-mix(in srgb, var(--gold-200) 90%, var(--snow-200));
+  background: color-mix(in srgb, rgba(51, 30, 7, 0.8) 75%, transparent);
+}
+
+.calendar-entry.warning {
+  border-color: color-mix(in srgb, var(--gold-500) 56%, var(--line));
+}
+
+body.room-upgrade-modal-open {
+  overflow: hidden;
+}
+
+.room-upgrade-modal-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.room-upgrade-modal-card header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.room-upgrade-modal-card h3 {
+  margin: 0;
+}
+
+.room-upgrade-modal-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.room-upgrade-modal-col {
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel) 84%, var(--ink-900));
+}
+
+.room-upgrade-modal-col p {
+  margin: 0 0 8px;
+}
+
+.room-upgrade-preview-copy {
+  margin-top: 4px;
+}
+
+.room-upgrade-modal-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 820px) {
+  .room-upgrade-modal-grid {
+    grid-template-columns: 1fr;
+  }
 }
