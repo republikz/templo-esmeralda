@@ -98,6 +98,7 @@
 
         <section class="view active" id="view-dashboard">
           <section class="panel dashboard-hero-card" id="dashboardHeroPanel"></section>
+          <section class="panel dashboard-faith-card" id="dashboardFaithPanel"></section>
 
           <div class="dashboard-grid">
             <section class="panel dashboard-calendar-panel">
@@ -926,6 +927,10 @@ Use uma linha em branco para separar novas anotações em parágrafos."></textar
                 <label>
                   PIN de acesso
                   <input id="userPin" maxlength="20" placeholder="Opcional">
+                </label>
+                <label>
+                  Pontos de Fé
+                  <input id="userFaithPoints" type="number" min="0" step="1" value="0">
                 </label>
               </div>
               <div class="button-row">

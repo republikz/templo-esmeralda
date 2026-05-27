@@ -27,6 +27,28 @@ const campfireGoalCategories = {
   long: "Longo Prazo"
 };
 
+const faithPointRulesDisplay = {
+  title: "Ponto de F\u00e9",
+  level: "Spell 12",
+  traits: ["Rare", "Concentrate", "Divine", "Manipulate"],
+  basics: [
+    ["Tradi\u00e7\u00e3o", "divina"],
+    ["Conjura\u00e7\u00e3o", "3 a\u00e7\u00f5es: material, som\u00e1tica e verbal"],
+    ["Alcance", "ilimitado"]
+  ],
+  description: "Selecione o Fragmento Maior ou Menor cujo pedido ser\u00e1 direcionado. A sua rela\u00e7\u00e3o com o ser divino interfere diretamente nas consequ\u00eancias dos efeitos. Cada indiv\u00edduo possui uma quantidade determinada de Pontos de F\u00e9; quando utilizados, eles n\u00e3o retornam automaticamente e s\u00f3 podem ser readquiridos por concess\u00e3o direta de um ser divino.",
+  activations: [
+    "Voc\u00ea extrai segredos dos fundamentos da magia e pode duplicar uma magia de 9\u00ba n\u00edvel ou inferior da tradi\u00e7\u00e3o que conjura, ou uma magia de 7\u00ba n\u00edvel ou inferior de qualquer tradi\u00e7\u00e3o, mesmo que n\u00e3o conjure magias. O Mestre pode permitir op\u00e7\u00f5es mais amplas.",
+    "Voc\u00ea declara seu pedido em voz alta, suplicando ao divino. O pedido pode ir de favores simples a grandes riquezas, desejos maiores ou destrui\u00e7\u00e3o de um reino inteiro. O resultado depende do ser divino e de seus interesses."
+  ],
+  outcomes: [
+    ["Sucesso Cr\u00edtico", "20", "O pedido \u00e9 recebido pelo divino com tanto poder que ele se sente obrigado a agir. O pedido recebe maior prioridade e costuma trazer consequ\u00eancias ben\u00e9ficas."],
+    ["Sucesso", "10-19", "A ativa\u00e7\u00e3o 1 ocorre sem consequ\u00eancia negativa. A ativa\u00e7\u00e3o 2 \u00e9 atendida na medida do poss\u00edvel e da vontade do divino, ainda podendo gerar efeitos imprevis\u00edveis."],
+    ["Falha", "02-09", "O pedido tem grandes chances de falhar ou ser atendido de forma incompleta. Ainda pode ser atendido, mas com consequ\u00eancia dr\u00e1stica e inesperada."],
+    ["Falha Cr\u00edtica", "01", "O pedido \u00e9 corrompido, interpretado de forma contr\u00e1ria pelo divino ou recebido por outro ser divino. Geralmente surgem consequ\u00eancias cru\u00e9is e inesperadas."]
+  ]
+};
+
 const rarityRank = {
   Common: 1,
   Uncommon: 2,
@@ -68,6 +90,8 @@ let selectedJourneyEntryId = "";
 let journeyModalEditId = "";
 let journeyCommentEditId = "";
 let campfireNotesEditing = false;
+let dashboardFaithExpanded = false;
+let faithUseConfirmOpen = false;
 let lastSyncedRevision = 0;
 let lastSyncedStateSnapshot = null;
 let lastSyncStartedAt = 0;
@@ -170,6 +194,44 @@ function isAuthenticated() {
 
 function isAdmin() {
   return isAuthenticated() && getActiveUser().role === userRoles.admin;
+}
+
+function getFaithPointsForUser(userId) {
+  if (!userId) {
+    return 0;
+  }
+  return (Array.isArray(state.faithTransactions) ? state.faithTransactions : [])
+    .filter((transaction) => transaction.userId === userId)
+    .reduce((total, transaction) => total + (Number.parseInt(transaction.amount, 10) || 0), 0);
+}
+
+function addFaithTransaction(userId, amount, reason) {
+  const normalizedAmount = Number.parseInt(amount, 10);
+  if (!userId || !Number.isFinite(normalizedAmount) || normalizedAmount === 0) {
+    return null;
+  }
+  const transaction = normalizeFaithTransaction({
+    id: createId("faith"),
+    userId,
+    amount: normalizedAmount,
+    reason,
+    createdByUserId: getActiveUserId() || "",
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  });
+  if (!transaction) {
+    return null;
+  }
+  state.faithTransactions = Array.isArray(state.faithTransactions) ? state.faithTransactions : [];
+  state.faithTransactions.push(transaction);
+  return transaction;
+}
+
+function setFaithPointsForUser(userId, targetAmount, reason = "Ajuste do Mestre") {
+  const target = Math.max(0, Number.parseInt(targetAmount, 10) || 0);
+  const current = getFaithPointsForUser(userId);
+  const delta = target - current;
+  return delta === 0 ? null : addFaithTransaction(userId, delta, reason);
 }
 
 function canAccessView(view) {
@@ -316,6 +378,7 @@ function bindEvents() {
   $("#cancelFinanceBalance").addEventListener("click", () => toggleFinanceBalanceEditor(false));
   $("#authForm").addEventListener("submit", handleAccessSubmit);
   $("#dashboardCalendarGrid")?.addEventListener("click", handleDashboardAction);
+  $("#dashboardFaithPanel")?.addEventListener("click", handleFaithAction);
   $("#dashboardJourneyList")?.addEventListener("click", handleDashboardAction);
   $("#dashboardJourneyCommentList")?.addEventListener("click", handleDashboardAction);
   $("#openJourneyDashboard")?.addEventListener("click", () => showView("journey"));
@@ -557,6 +620,7 @@ function freshState() {
       }
     ],
     ledger: [],
+    faithTransactions: [],
     events: [],
     autoProcessRecurring: false,
     campfire: {
@@ -728,6 +792,7 @@ function normalizeState(value) {
     npcs: Array.isArray(data.npcs) ? data.npcs.map(normalizeNpc) : fallback.npcs,
     financeSources: Array.isArray(data.financeSources) ? data.financeSources.map(normalizeSource) : fallback.financeSources,
     ledger: Array.isArray(data.ledger) ? data.ledger.map(normalizeLedgerEntry) : fallback.ledger,
+    faithTransactions: Array.isArray(data.faithTransactions) ? data.faithTransactions.map(normalizeFaithTransaction).filter(Boolean) : fallback.faithTransactions,
     events: Array.isArray(data.events) ? data.events.map(normalizeCalendarEvent) : fallback.events,
     autoProcessRecurring: data.autoProcessRecurring === true,
     campfire: normalizeCampfire(data.campfire || fallback.campfire, users),
@@ -754,6 +819,26 @@ function normalizeUser(user) {
     pin: String(role === userRoles.admin ? (user?.pin || "310898") : (user?.pin || "")),
     createdAt: Number(user?.createdAt) || Date.now(),
     updatedAt: Number(user?.updatedAt) || Number(user?.createdAt) || Date.now()
+  };
+}
+
+function normalizeFaithTransaction(transaction) {
+  if (!transaction || typeof transaction !== "object") {
+    return null;
+  }
+  const userId = String(transaction.userId || "").trim();
+  const amount = Number.parseInt(transaction.amount, 10);
+  if (!userId || !Number.isFinite(amount) || amount === 0) {
+    return null;
+  }
+  return {
+    id: transaction.id || createId("faith"),
+    userId,
+    amount,
+    reason: String(transaction.reason || "").trim(),
+    createdByUserId: String(transaction.createdByUserId || "").trim(),
+    createdAt: Number(transaction.createdAt) || Date.now(),
+    updatedAt: Number(transaction.updatedAt) || Number(transaction.createdAt) || Date.now()
   };
 }
 
@@ -3686,6 +3771,7 @@ function renderUsers() {
             <div class="chip-row">
               <span class="chip ${user.role === userRoles.admin ? "premium" : "income"}">${user.role === userRoles.admin ? "Mestre" : "Jogador"}</span>
               <span class="chip">${user.pin ? "PIN definido" : "Sem PIN"}</span>
+              <span class="chip faith-chip">${getFaithPointsForUser(user.id)} PF</span>
             </div>
           </div>
           <div class="card-actions">
@@ -3700,6 +3786,10 @@ function renderUsers() {
 function clearUserForm() {
   $("#userForm").reset();
   $("#userId").value = "";
+  const faithInput = $("#userFaithPoints");
+  if (faithInput) {
+    faithInput.value = "0";
+  }
 }
 
 function saveUser(event) {
@@ -3727,6 +3817,7 @@ function saveUser(event) {
   } else {
     state.users.push(payload);
   }
+  setFaithPointsForUser(payload.id, $("#userFaithPoints")?.value || 0, "Ajuste do Mestre");
   saveState();
   clearUserForm();
   render();
@@ -3747,6 +3838,10 @@ function handleUserAction(event) {
     $("#userName").value = user.name;
     $("#userRole").value = user.role;
     $("#userPin").value = user.pin || "";
+    const faithInput = $("#userFaithPoints");
+    if (faithInput) {
+      faithInput.value = Math.max(0, getFaithPointsForUser(user.id));
+    }
     $("#userManagementPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   if (button.dataset.action === "delete-user" && confirm(`Remover o usuário ${user.name}?`)) {
@@ -4100,6 +4195,7 @@ function showToast(message) {
 
 function renderDashboard() {
   renderDashboardHero();
+  renderDashboardFaith();
   renderDashboardCalendar();
   renderDashboardJourney();
   const totalItems = getMarketStockTotal();
@@ -4132,6 +4228,111 @@ function renderDashboardHero() {
   }).join("");
   const html = `<div class="dashboard-hero-copy"><p class="eyebrow">Seu herói</p><h2>${escapeHtml(hero.characterName)}</h2></div><div class="dashboard-hero-content"><div class="dash-hero-avatar ${hero.image ? "has-image" : ""}">${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}</div><div class="dash-goal-grid">${goalsHtml}</div></div>`;
   setHtmlIfChanged(panel, html);
+}
+
+function renderDashboardFaith() {
+  const panel = $("#dashboardFaithPanel");
+  if (!panel) return;
+  const rules = faithPointRulesDisplay;
+  const activeUser = isAuthenticated() ? getActiveUser() : null;
+  const points = activeUser ? Math.max(0, getFaithPointsForUser(activeUser.id)) : 0;
+  panel.classList.toggle("collapsed", !dashboardFaithExpanded);
+  const basics = rules.basics
+    .map(([label, value]) => `<span><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</span>`)
+    .join("");
+  const traits = rules.traits
+    .map((trait) => `<span class="faith-trait">${escapeHtml(trait)}</span>`)
+    .join("");
+  const activations = rules.activations
+    .map((text) => `<li>${escapeHtml(text)}</li>`)
+    .join("");
+  const outcomes = rules.outcomes
+    .map(([label, roll, text], index) => {
+      const classes = ["critical-success", "success", "failure", "critical-failure"];
+      return `<article class="faith-outcome ${classes[index] || ""}"><strong>${escapeHtml(label)} <small>(${escapeHtml(roll)})</small></strong><p>${escapeHtml(text)}</p></article>`;
+    })
+    .join("");
+  const canUse = Boolean(activeUser && points > 0);
+  const confirmHtml = faithUseConfirmOpen
+    ? `<div class="faith-confirm" role="alert">
+        <strong>Entregar este pedido ao divino?</strong>
+        <p>Ao gastar um Ponto de Fé, a prece deixa suas mãos e só retorna por nova concessão divina.</p>
+        <div class="button-row compact">
+          <button class="button primary" type="button" data-action="confirm-use-faith">Confirmar uso</button>
+          <button class="button ghost" type="button" data-action="cancel-use-faith">Cancelar</button>
+        </div>
+      </div>`
+    : "";
+  const html = `
+    <button class="faith-compact" type="button" data-action="toggle-faith-panel" aria-expanded="${dashboardFaithExpanded ? "true" : "false"}">
+      <span>Pontos de Fé</span>
+      <strong>${points}</strong>
+      <em>${dashboardFaithExpanded ? "Recolher" : "Ver regras"}</em>
+    </button>
+    <div class="faith-summary">
+      <div class="faith-traits">${traits}</div>
+      <button class="button primary faith-use-button" type="button" data-action="use-faith-point" ${canUse ? "" : "disabled"}>Usar Ponto de Fé</button>
+    </div>
+    ${confirmHtml}
+    <div class="faith-rule-card">
+      <header>
+        <div>${basics}</div>
+      </header>
+      <p>${escapeHtml(rules.description)}</p>
+      <section>
+        <h3>Possibilidades de ativação</h3>
+        <ol>${activations}</ol>
+      </section>
+      <section class="faith-outcomes">
+        <h3>Resultado do pedido</h3>
+        <div>${outcomes}</div>
+      </section>
+    </div>`;
+  setHtmlIfChanged(panel, html);
+}
+
+function handleFaithAction(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  if (action === "toggle-faith-panel") {
+    dashboardFaithExpanded = !dashboardFaithExpanded;
+    faithUseConfirmOpen = false;
+    renderDashboardFaith();
+    return;
+  }
+  if (action === "cancel-use-faith") {
+    faithUseConfirmOpen = false;
+    renderDashboardFaith();
+    return;
+  }
+  const activeUser = getActiveUser();
+  if (!isAuthenticated() || !activeUser) {
+    showToast("Entre com seu perfil para usar Pontos de Fé.");
+    return;
+  }
+  const current = getFaithPointsForUser(activeUser.id);
+  if (current <= 0) {
+    showToast("Você não possui Pontos de Fé disponíveis.");
+    faithUseConfirmOpen = false;
+    renderDashboardFaith();
+    return;
+  }
+  if (action === "use-faith-point") {
+    faithUseConfirmOpen = true;
+    renderDashboardFaith();
+    return;
+  }
+  if (action !== "confirm-use-faith") {
+    return;
+  }
+  addFaithTransaction(activeUser.id, -1, "Uso de Ponto de Fé");
+  saveState();
+  faithUseConfirmOpen = false;
+  render();
+  showToast("Ponto de Fé utilizado.");
 }
 
 function renderDashboardJourney() {

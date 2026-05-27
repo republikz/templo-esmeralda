@@ -375,6 +375,7 @@ function mergeStates(currentState, incomingState) {
   merged.npcs = mergeArrayById(current.npcs, incoming.npcs, "npc", tombstones);
   merged.financeSources = mergeArrayById(current.financeSources, incoming.financeSources, "source", tombstones);
   merged.ledger = mergeArrayById(current.ledger, incoming.ledger, "ledger", tombstones);
+  merged.faithTransactions = mergeArrayById(current.faithTransactions, incoming.faithTransactions, "faithTransaction", tombstones);
   merged.events = mergeArrayById(current.events, incoming.events, "event", tombstones);
 
   merged.campfire = {

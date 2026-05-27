@@ -1558,7 +1558,7 @@ select {
   margin-top: 6px;
   color: #f8efd9;
   font-size: clamp(2.25rem, 4vw, 4.55rem);
-  font-weight: 400;
+  font-weight: 900;
   line-height: 0.98;
   text-shadow: 0 18px 54px rgba(0, 0, 0, 0.55), 0 0 24px rgba(155, 187, 215, 0.12);
 }
@@ -1791,8 +1791,10 @@ label {
 
 .section-header h2 {
   color: #f6ebd2;
-  font-size: 1.38rem;
-  font-weight: 400;
+  font-size: clamp(1.42rem, 2vw, 2rem);
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 0 18px rgba(231, 197, 123, 0.1);
 }
 
 .dashboard-grid {
@@ -3481,6 +3483,334 @@ body.sidebar-collapsed .sidebar-toggle span {
     rgba(12, 20, 27, 0.9);
 }
 
+.dashboard-faith-card {
+  margin-bottom: 16px;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(231, 197, 123, 0.12), transparent 32%),
+    linear-gradient(130deg, rgba(56, 197, 139, 0.08), rgba(7, 15, 21, 0.94) 42%, rgba(42, 29, 57, 0.2)),
+    rgba(10, 17, 24, 0.92);
+}
+
+.faith-compact {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.faith-compact span {
+  color: #f5e5bd;
+  font-family: var(--font-display);
+  font-size: clamp(1.42rem, 2vw, 2rem);
+  font-weight: 900;
+  letter-spacing: .01em;
+  line-height: 1;
+  text-transform: none;
+  text-shadow: 0 0 18px rgba(231, 197, 123, 0.14);
+}
+
+.faith-compact strong,
+.faith-counter strong {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 225, 135, 0.5);
+  border-radius: 999px;
+  color: #f9f0d5;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255, 238, 172, 0.22), rgba(30, 93, 77, 0.14) 52%, rgba(5, 11, 15, 0.82) 74%),
+    rgba(8, 14, 18, 0.74);
+  font-family: "Cascadia Mono", "Consolas", "Courier New", monospace;
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  font-size: clamp(1.42rem, 2vw, 2rem);
+  font-weight: 900;
+  letter-spacing: .01em;
+  line-height: 1;
+  box-shadow:
+    0 0 0 4px rgba(255, 225, 135, 0.045),
+    0 0 24px rgba(255, 220, 126, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  text-shadow:
+    0 0 10px rgba(255, 229, 154, 0.35),
+    0 1px 0 rgba(0, 0, 0, 0.65);
+}
+
+.faith-compact em {
+  min-width: 92px;
+  padding: 7px 11px;
+  border: 1px solid rgba(231, 197, 123, 0.3);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-style: normal;
+  font-weight: 900;
+  text-align: center;
+}
+
+.faith-use-button {
+  position: relative;
+  isolation: isolate;
+  min-height: 48px;
+  border-color: rgba(231, 197, 123, 0.55);
+  color: #07110f;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 245, 199, 0.92), transparent 22%),
+    linear-gradient(135deg, #f4dc8e 0%, #69d9ad 42%, #1f9c79 100%);
+  box-shadow:
+    0 0 0 1px rgba(246, 223, 142, 0.22),
+    0 10px 28px rgba(38, 194, 145, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  text-shadow: none;
+  overflow: hidden;
+}
+
+.faith-use-button::after {
+  content: "";
+  position: absolute;
+  inset: -45% -20%;
+  z-index: -1;
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.42) 50%, transparent 62%);
+  transform: translateX(-70%);
+  transition: transform 480ms ease;
+}
+
+.faith-use-button:hover:not(:disabled),
+.faith-use-button:focus-visible:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(246, 223, 142, 0.42),
+    0 0 26px rgba(231, 197, 123, 0.18),
+    0 16px 34px rgba(38, 194, 145, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.faith-use-button:hover:not(:disabled)::after,
+.faith-use-button:focus-visible:not(:disabled)::after {
+  transform: translateX(70%);
+}
+
+.dashboard-faith-card.collapsed {
+  padding-block: 14px;
+}
+
+.dashboard-faith-card.collapsed .faith-summary,
+.dashboard-faith-card.collapsed .faith-confirm,
+.dashboard-faith-card.collapsed .faith-rule-card {
+  display: none;
+}
+
+.dashboard-faith-card:not(.collapsed) .faith-compact {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(231, 197, 123, 0.18);
+}
+
+.faith-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.faith-traits,
+.faith-rule-card header > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.faith-trait,
+.faith-rule-card header span,
+.faith-rule-card header strong,
+.faith-chip {
+  color: #f7e6b8;
+}
+
+.faith-trait,
+.faith-rule-card header > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid rgba(231, 197, 123, 0.34);
+  border-radius: 999px;
+  background: rgba(231, 197, 123, 0.08);
+  font-size: .78rem;
+  font-weight: 900;
+}
+
+.faith-counter {
+  min-width: 170px;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.faith-counter span {
+  color: var(--muted);
+  font-size: .78rem;
+  text-transform: uppercase;
+}
+
+.faith-counter strong {
+  display: block;
+}
+
+.faith-confirm {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(231, 197, 123, 0.28);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 8% 20%, rgba(231, 197, 123, 0.12), transparent 35%),
+    rgba(7, 12, 17, 0.66);
+}
+
+.faith-confirm p {
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.button-row.compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.faith-rule-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(231, 197, 123, 0.2);
+  border-radius: var(--radius);
+  background: rgba(4, 11, 15, 0.42);
+}
+
+.faith-rule-card header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px 16px;
+  align-items: center;
+}
+
+.faith-rule-card p,
+.faith-rule-card li {
+  color: var(--text-muted);
+  text-align: justify;
+}
+
+.faith-rule-card h3 {
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: .9rem;
+  text-transform: uppercase;
+}
+
+.faith-rule-card ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.faith-outcomes > div {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.faith-outcome {
+  padding: 10px 12px;
+  border: 1px solid rgba(231, 197, 123, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.faith-outcome.critical-success {
+  border-color: rgba(255, 214, 87, 0.72);
+  background:
+    radial-gradient(circle at 12% 14%, rgba(255, 237, 151, 0.28), transparent 34%),
+    linear-gradient(135deg, rgba(135, 92, 24, 0.46), rgba(45, 31, 9, 0.72)),
+    rgba(12, 10, 5, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(255, 214, 87, 0.1),
+    0 0 26px rgba(255, 199, 62, 0.18),
+    inset 0 1px 0 rgba(255, 248, 202, 0.16);
+}
+
+.faith-outcome.critical-success strong {
+  color: #ffe083;
+  text-shadow: 0 0 14px rgba(255, 206, 77, 0.36);
+}
+
+.faith-outcome.success {
+  border-color: rgba(74, 205, 136, 0.54);
+  background:
+    radial-gradient(circle at 12% 14%, rgba(122, 232, 168, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(28, 106, 68, 0.36), rgba(7, 34, 24, 0.7)),
+    rgba(6, 13, 10, 0.7);
+  box-shadow:
+    0 0 0 1px rgba(74, 205, 136, 0.08),
+    0 0 20px rgba(74, 205, 136, 0.11),
+    inset 0 1px 0 rgba(196, 255, 216, 0.1);
+}
+
+.faith-outcome.success strong {
+  color: #a9f1c2;
+  text-shadow: 0 0 12px rgba(75, 210, 138, 0.22);
+}
+
+.faith-outcome.failure {
+  border-color: rgba(213, 78, 75, 0.54);
+  background:
+    radial-gradient(circle at 12% 14%, rgba(239, 118, 98, 0.16), transparent 34%),
+    linear-gradient(135deg, rgba(111, 31, 30, 0.36), rgba(39, 10, 12, 0.72)),
+    rgba(15, 6, 7, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(213, 78, 75, 0.08),
+    0 0 18px rgba(213, 78, 75, 0.1),
+    inset 0 1px 0 rgba(255, 196, 180, 0.08);
+}
+
+.faith-outcome.failure strong {
+  color: #ffb3a6;
+  text-shadow: 0 0 12px rgba(213, 78, 75, 0.2);
+}
+
+.faith-outcome.critical-failure {
+  border-color: rgba(4, 5, 7, 0.9);
+  background:
+    radial-gradient(circle at 12% 14%, rgba(107, 112, 126, 0.14), transparent 32%),
+    linear-gradient(135deg, rgba(0, 0, 0, 0.86), rgba(15, 17, 23, 0.78)),
+    rgba(2, 3, 5, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(231, 197, 123, 0.07),
+    0 0 18px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.faith-outcome.critical-failure strong {
+  color: #d8d9df;
+  text-shadow: 0 0 12px rgba(180, 185, 205, 0.16);
+}
+
+.faith-outcome p {
+  margin-top: 4px;
+}
+
 .dashboard-hero-content {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
@@ -3679,9 +4009,21 @@ body.sidebar-collapsed .sidebar-toggle span {
   body.sidebar-collapsed .side-status { display: grid; }
   .sidebar-toggle { display: none; }
   .dashboard-hero-content,
+  .faith-summary,
+  .faith-rule-card header,
   .dash-goal-grid,
+  .faith-outcomes > div,
   .next-cycle-list,
   .dashboard-journey-grid { grid-template-columns: 1fr; }
+  .faith-summary { display: grid; }
+  .faith-counter { justify-items: start; }
+  .faith-compact {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .faith-compact em {
+    grid-column: 1 / -1;
+    width: fit-content;
+  }
 }
 
 /* NPC gallery and modal */
