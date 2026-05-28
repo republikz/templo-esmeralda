@@ -5739,6 +5739,8 @@ function saveInvestigationNote(event) {
   note.color = event.target.elements.color?.value || "gold";
   note.journeyEntryId = event.target.elements.journeyEntryId?.value || "";
   note.updatedAt = Date.now();
+  selectedInvestigationNoteId = "";
+  document.body.classList.remove("investigation-modal-open");
   saveState();
   renderCampfireInvestigation();
   showToast("Nota salva.");
