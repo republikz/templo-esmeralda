@@ -96,6 +96,7 @@ let investigationConnectFromId = "";
 let investigationDragState = null;
 let investigationSuppressClick = false;
 let investigationMoveSaveTimer = null;
+let pendingInvestigationDeleteId = "";
 
 function isLocalDevelopmentHost() {
   const host = window.location.hostname;
@@ -5506,6 +5507,7 @@ function renderInvestigationModal() {
   modal.hidden = !note;
   document.body.classList.toggle("investigation-modal-open", Boolean(note));
   if (!note) {
+    pendingInvestigationDeleteId = "";
     setHtmlIfChanged(content, "");
     return;
   }
@@ -5524,7 +5526,29 @@ function renderInvestigationModal() {
       return other ? `<li><span>${escapeHtml(other.title)}</span><button class="button ghost tiny" type="button" data-action="delete-investigation-link" data-link-id="${escapeAttr(link.id)}">Remover linha</button></li>` : "";
     })
     .join("");
-  const key = getCacheKey(state.revision, note.id, note.updatedAt, note.journeyEntryId, board.links.length, state.journey.entries.length);
+  const deletePending = pendingInvestigationDeleteId === note.id;
+  const key = getCacheKey(state.revision, note.id, note.updatedAt, note.journeyEntryId, board.links.length, state.journey.entries.length, deletePending);
+  if (deletePending) {
+    const html = `
+      <header>
+        <div>
+          <p class="eyebrow">Confirmar remo\u00e7\u00e3o</p>
+          <h3>${escapeHtml(note.title)}</h3>
+        </div>
+        <button class="icon-button close-button" type="button" title="Fechar nota" data-action="close-investigation-modal">X</button>
+      </header>
+      <section class="delete-confirmation-panel">
+        <p>Esta nota e todas as linhas conectadas a ela ser\u00e3o removidas do quadro de investiga\u00e7\u00e3o.</p>
+        <p>Essa a\u00e7\u00e3o n\u00e3o deve ser feita por acidente. Confirme apenas se deseja apagar esta pista da mesa.</p>
+      </section>
+      <div class="button-row">
+        <button class="button danger" type="button" data-action="confirm-delete-investigation-note" data-note-id="${escapeAttr(note.id)}">Confirmar remo\u00e7\u00e3o</button>
+        <button class="button ghost" type="button" data-action="cancel-delete-investigation-note">Cancelar</button>
+      </div>
+    `;
+    setHtmlIfChanged(content, html);
+    return;
+  }
   const html = getCachedValue(renderCache.campfireInvestigationModalHtml, key, () => `
     <header>
       <div>
@@ -5603,6 +5627,7 @@ function openInvestigationNoteModal(noteId) {
 
 function closeInvestigationNoteModal() {
   selectedInvestigationNoteId = "";
+  pendingInvestigationDeleteId = "";
   document.body.classList.remove("investigation-modal-open");
   renderCampfireInvestigation();
 }
@@ -5695,6 +5720,7 @@ function handleInvestigationBoardAction(event) {
   }
   const action = button.dataset.action;
   if (action === "edit-investigation-note") {
+    pendingInvestigationDeleteId = "";
     openInvestigationNoteModal(button.dataset.noteId);
   }
   if (action === "delete-investigation-note") {
@@ -5713,6 +5739,13 @@ function handleInvestigationModalAction(event) {
   }
   if (action === "delete-investigation-note") {
     deleteInvestigationNote(button.dataset.noteId || selectedInvestigationNoteId);
+  }
+  if (action === "confirm-delete-investigation-note") {
+    confirmDeleteInvestigationNote(button.dataset.noteId || pendingInvestigationDeleteId);
+  }
+  if (action === "cancel-delete-investigation-note") {
+    pendingInvestigationDeleteId = "";
+    renderInvestigationModal();
   }
   if (action === "delete-investigation-link") {
     deleteInvestigationLink(button.dataset.linkId);
@@ -5755,6 +5788,22 @@ function deleteInvestigationNote(noteId) {
   if (!note) {
     return;
   }
+  pendingInvestigationDeleteId = noteId;
+  selectedInvestigationNoteId = noteId;
+  renderCampfireInvestigation();
+}
+
+function confirmDeleteInvestigationNote(noteId) {
+  if (!noteId || pendingInvestigationDeleteId !== noteId) {
+    return;
+  }
+  const board = getInvestigationBoard();
+  const note = board.notes.find((item) => item.id === noteId);
+  if (!note) {
+    pendingInvestigationDeleteId = "";
+    return;
+  }
+  pendingInvestigationDeleteId = "";
   const linked = board.links.filter((link) => link.fromNoteId === noteId || link.toNoteId === noteId);
   addDeletedRecord("campfireInvestigationNote", noteId);
   linked.forEach((link) => addDeletedRecord("campfireInvestigationLink", link.id));

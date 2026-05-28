@@ -2935,6 +2935,27 @@ body.investigation-modal-open {
   background: rgba(3, 9, 12, 0.45);
 }
 
+.danger-note,
+.delete-confirmation-panel {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(201, 82, 72, 0.42);
+  border-radius: 10px;
+  color: #ffd9d4;
+  background: linear-gradient(135deg, rgba(94, 21, 18, 0.35), rgba(15, 8, 8, 0.68));
+}
+
+.delete-confirmation-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  line-height: 1.55;
+}
+
+.delete-confirmation-panel p {
+  margin: 0;
+}
+
 @media (max-width: 760px) {
   .campfire-investigation .section-header {
     align-items: stretch;
