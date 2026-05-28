@@ -90,6 +90,23 @@ let selectedJourneyEntryId = "";
 let journeyModalEditId = "";
 let journeyCommentEditId = "";
 let campfireNotesEditing = false;
+let selectedInvestigationNoteId = "";
+let investigationConnectMode = false;
+let investigationConnectFromId = "";
+let investigationDragState = null;
+let investigationSuppressClick = false;
+let investigationMoveSaveTimer = null;
+
+function isLocalDevelopmentHost() {
+  const host = window.location.hostname;
+  return host === "localhost"
+    || host === "127.0.0.1"
+    || host === "0.0.0.0"
+    || host.startsWith("192.168.")
+    || host.startsWith("10.")
+    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+}
+let investigationFullscreen = false;
 let dashboardFaithExpanded = false;
 let faithUseConfirmOpen = false;
 let lastSyncedRevision = 0;
@@ -114,6 +131,9 @@ const renderCache = {
   calendarMonthsHtml: { key: "", value: "" },
   campfireBoardHtml: { key: "", value: "" },
   campfireGalleryHtml: { key: "", value: "" },
+  campfireInvestigationNotesHtml: { key: "", value: "" },
+  campfireInvestigationLinksHtml: { key: "", value: "" },
+  campfireInvestigationModalHtml: { key: "", value: "" },
   journeyGalleryHtml: { key: "", value: "" },
   journeyDetailHtml: { key: "", value: "" },
   marketCategoryHtml: { key: "", value: "" },
@@ -393,6 +413,14 @@ function bindEvents() {
   $("#campfireLegionForm")?.addEventListener("submit", saveCampfireLegionNotes);
   $("#toggleCampfireLegionEditor")?.addEventListener("click", () => toggleCampfireLegionEditor(true));
   $("#cancelCampfireLegionEdit")?.addEventListener("click", () => toggleCampfireLegionEditor(false));
+  $("#newInvestigationNote")?.addEventListener("click", () => openInvestigationNoteModal(""));
+  $("#connectInvestigationNotes")?.addEventListener("click", startInvestigationConnectMode);
+  $("#cancelInvestigationConnect")?.addEventListener("click", cancelInvestigationConnectMode);
+  $("#fullscreenInvestigationBoard")?.addEventListener("click", toggleInvestigationFullscreen);
+  $("#campfireInvestigationBoard")?.addEventListener("click", handleInvestigationBoardAction);
+  $("#campfireInvestigationBoard")?.addEventListener("pointerdown", handleInvestigationPointerDown);
+  $("#campfireInvestigationModal")?.addEventListener("click", handleInvestigationModalAction);
+  $("#campfireInvestigationModal")?.addEventListener("submit", saveInvestigationNote);
   $("#campfireOwnGoals")?.addEventListener("click", handleCampfireAction);
   $("#campfireGallery")?.addEventListener("click", handleCampfireAction);
 
@@ -415,6 +443,7 @@ function bindEvents() {
   document.addEventListener("keydown", handleJourneyKeydown);
   document.addEventListener("keydown", handleNpcKeydown);
   document.addEventListener("keydown", handleRoomUpgradeKeydown);
+  document.addEventListener("keydown", handleInvestigationKeydown);
 
   $("#settingsForm").addEventListener("submit", saveSettings);
   $("#exportData").addEventListener("click", exportData);
@@ -625,7 +654,13 @@ function freshState() {
     autoProcessRecurring: false,
     campfire: {
       legionNotes: "A chama do grupo ainda está sendo escrita. Guardem promessas, rastros e pactos que merecem voltar à mesa.",
-      heroes: [
+    investigationBoard: {
+      width: 1800,
+      height: 1250,
+      notes: [],
+      links: []
+    },
+    heroes: [
         {
         id: masterHeroId,
         ownerUserId: masterUserId,
@@ -708,6 +743,9 @@ function freshState() {
 }
 
 async function loadSeedState() {
+  if (!isLocalDevelopmentHost()) {
+    return null;
+  }
   try {
     const response = await fetch(SEED_STATE_URL, { cache: "no-store" });
     if (!response.ok) {
@@ -990,7 +1028,84 @@ function normalizeCampfire(campfire, users) {
   const userLookup = new Map((Array.isArray(users) ? users : []).map((user) => [user.id, user]));
   return {
     legionNotes: String(source.legionNotes || "").trim() || "Anotações livres do Minimus Legio.",
+    investigationBoard: normalizeInvestigationBoard(source.investigationBoard, source.legionNotes, userLookup),
     heroes: Array.isArray(source.heroes) ? source.heroes.map((hero) => normalizeCampfireHero(hero, userLookup)) : []
+  };
+}
+
+function normalizeInvestigationBoard(board, legacyNotes, userLookup) {
+  const source = board && typeof board === "object" ? board : {};
+  const notes = Array.isArray(source.notes)
+    ? source.notes.map((note) => normalizeInvestigationNote(note, userLookup)).filter(Boolean)
+    : [];
+  const links = Array.isArray(source.links)
+    ? source.links.map(normalizeInvestigationLink).filter(Boolean)
+    : [];
+  if (!notes.length && legacyNotes) {
+    String(legacyNotes)
+      .split(/\n\s*\n/g)
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .slice(0, 12)
+      .forEach((text, index) => {
+        notes.push(normalizeInvestigationNote({
+          id: createId("invnote"),
+          title: index === 0 ? "Primeira pista" : `Pista ${index + 1}`,
+          text,
+          x: 48 + (index % 4) * 250,
+          y: 48 + Math.floor(index / 4) * 210,
+          color: ["gold", "green", "blue", "violet"][index % 4],
+          createdByName: "Minimus Legio",
+          createdAt: Date.now() - (12 - index),
+          updatedAt: Date.now() - (12 - index)
+        }, userLookup));
+      });
+  }
+  const noteIds = new Set(notes.map((note) => note.id));
+  return {
+    width: Math.max(1200, Math.min(5000, Number(source.width) || 1800)),
+    height: Math.max(900, Math.min(4000, Number(source.height) || 1250)),
+    notes,
+    links: links.filter((link) => noteIds.has(link.fromNoteId) && noteIds.has(link.toNoteId) && link.fromNoteId !== link.toNoteId)
+  };
+}
+
+function normalizeInvestigationNote(note, userLookup) {
+  if (!note || typeof note !== "object") {
+    return null;
+  }
+  const createdByUserId = note.createdByUserId || "";
+  const creator = createdByUserId ? userLookup.get(createdByUserId) : null;
+  const color = ["gold", "green", "blue", "violet", "red", "ash"].includes(note.color) ? note.color : "gold";
+  return {
+    id: note.id || createId("invnote"),
+    title: String(note.title || "").trim() || "Nota sem título",
+    text: String(note.text || "").trim(),
+    x: Math.max(0, Math.min(1600, Number(note.x) || 40)),
+    y: Math.max(0, Math.min(1100, Number(note.y) || 40)),
+    color,
+    journeyEntryId: note.journeyEntryId || "",
+    createdByUserId,
+    createdByName: String(note.createdByName || "").trim() || creator?.name || "Mesa",
+    createdByHeroId: note.createdByHeroId || "",
+    createdByHeroName: String(note.createdByHeroName || "").trim(),
+    createdAt: Number(note.createdAt) || Date.now(),
+    updatedAt: Number(note.updatedAt) || Date.now()
+  };
+}
+
+function normalizeInvestigationLink(link) {
+  if (!link || typeof link !== "object" || !link.fromNoteId || !link.toNoteId) {
+    return null;
+  }
+  return {
+    id: link.id || createId("invlink"),
+    fromNoteId: link.fromNoteId,
+    toNoteId: link.toNoteId,
+    label: String(link.label || "").trim(),
+    createdByUserId: link.createdByUserId || "",
+    createdAt: Number(link.createdAt) || Date.now(),
+    updatedAt: Number(link.updatedAt) || Date.now()
   };
 }
 
@@ -1535,6 +1650,13 @@ function showView(view) {
   }
   if (activeView !== "rooms") {
     closeRoomUpgradeModal({ silent: true });
+  }
+  if (activeView !== "campfire") {
+    selectedInvestigationNoteId = "";
+    investigationConnectMode = false;
+    investigationConnectFromId = "";
+    investigationFullscreen = false;
+    document.body.classList.remove("investigation-modal-open");
   }
   applyActiveViewState();
   if (window.location.hash !== `#${activeView}`) {
@@ -4179,6 +4301,10 @@ function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, "&#96;");
 }
 
+function cssEscape(value) {
+  return window.CSS?.escape ? window.CSS.escape(String(value || "")) : String(value || "").replace(/["\\]/g, "\\$&");
+}
+
 function nl2br(value) {
   return escapeHtml(value).replace(/\n/g, "<br>");
 }
@@ -5054,6 +5180,7 @@ function renderCampfire() {
   const galleryKey = getCacheKey(state.revision, getActiveUserId() || "", isAdmin() ? "admin" : "player");
   const galleryHtml = getCachedValue(renderCache.campfireGalleryHtml, galleryKey, () => renderCampfireGallery());
   setHtmlIfChanged(gallery, galleryHtml);
+  renderCampfireInvestigation();
 }
 
 function renderCampfireHeroBoard(hero, canEditHero) {
@@ -5205,6 +5332,556 @@ function renderCampfireHeroCard(hero) {
       </div>
     </article>
   `;
+}
+
+function getInvestigationBoard() {
+  state.campfire.investigationBoard = state.campfire.investigationBoard && typeof state.campfire.investigationBoard === "object"
+    ? state.campfire.investigationBoard
+    : { notes: [], links: [] };
+  state.campfire.investigationBoard.width = Math.max(1200, Math.min(5000, Number(state.campfire.investigationBoard.width) || 1800));
+  state.campfire.investigationBoard.height = Math.max(900, Math.min(4000, Number(state.campfire.investigationBoard.height) || 1250));
+  state.campfire.investigationBoard.notes = Array.isArray(state.campfire.investigationBoard.notes) ? state.campfire.investigationBoard.notes : [];
+  state.campfire.investigationBoard.links = Array.isArray(state.campfire.investigationBoard.links) ? state.campfire.investigationBoard.links : [];
+  return state.campfire.investigationBoard;
+}
+
+function fitInvestigationBoardToNotes() {
+  const board = getInvestigationBoard();
+  const maxRight = board.notes.reduce((max, note) => {
+    const element = document.querySelector(`.investigation-note[data-note-id="${cssEscape(note.id)}"]`);
+    const width = element?.offsetWidth || 260;
+    return Math.max(max, (Number(note.x) || 0) + width);
+  }, 0);
+  const maxBottom = board.notes.reduce((max, note) => {
+    const element = document.querySelector(`.investigation-note[data-note-id="${cssEscape(note.id)}"]`);
+    const fallbackHeight = Math.max(230, 142 + Math.ceil(String(note.text || "").length / 42) * 18 + (note.journeyEntryId ? 94 : 0));
+    const height = element?.offsetHeight || fallbackHeight;
+    return Math.max(max, (Number(note.y) || 0) + height);
+  }, 0);
+  board.width = Math.max(1200, Math.min(5000, Math.ceil(maxRight + 360)));
+  board.height = Math.max(900, Math.min(4000, Math.ceil(maxBottom + 300)));
+  return board;
+}
+
+function applyInvestigationBoardSize(board = getInvestigationBoard()) {
+  const boardElement = $("#campfireInvestigationBoard");
+  const linksSvg = $("#campfireInvestigationLinks");
+  if (boardElement) {
+    boardElement.style.width = `${board.width}px`;
+    boardElement.style.height = `${board.height}px`;
+  }
+  if (linksSvg) {
+    linksSvg.setAttribute("width", String(board.width));
+    linksSvg.setAttribute("height", String(board.height));
+    linksSvg.style.width = `${board.width}px`;
+    linksSvg.style.height = `${board.height}px`;
+  }
+}
+
+function getInvestigationAuthor() {
+  const user = getActiveUser();
+  const hero = getCampfireHeroForUser(user?.id);
+  return {
+    createdByUserId: user?.id || "",
+    createdByName: user?.name || "Viajante",
+    createdByHeroId: hero?.id || "",
+    createdByHeroName: hero?.characterName || ""
+  };
+}
+
+function getInvestigationJourneyEntry(note) {
+  return note?.journeyEntryId ? state.journey.entries.find((entry) => entry.id === note.journeyEntryId) || null : null;
+}
+
+function renderCampfireInvestigation() {
+  const notesWrap = $("#campfireInvestigationNotes");
+  const linksSvg = $("#campfireInvestigationLinks");
+  const connectButton = $("#connectInvestigationNotes");
+  const cancelButton = $("#cancelInvestigationConnect");
+  const fullscreenButton = $("#fullscreenInvestigationBoard");
+  const boardPanel = $(".campfire-investigation");
+  if (!notesWrap || !linksSvg) {
+    return;
+  }
+  const board = fitInvestigationBoardToNotes();
+  applyInvestigationBoardSize(board);
+  boardPanel?.classList.toggle("is-fullscreen", investigationFullscreen);
+  if (fullscreenButton) {
+    fullscreenButton.textContent = investigationFullscreen ? "Sair da tela cheia" : "Tela cheia";
+  }
+  if (selectedInvestigationNoteId && !board.notes.some((note) => note.id === selectedInvestigationNoteId)) {
+    selectedInvestigationNoteId = "";
+  }
+  if (investigationConnectFromId && !board.notes.some((note) => note.id === investigationConnectFromId)) {
+    investigationConnectFromId = "";
+    investigationConnectMode = false;
+  }
+  if (connectButton) {
+    connectButton.classList.toggle("active", investigationConnectMode);
+    connectButton.textContent = investigationConnectFromId ? "Escolha o destino" : (investigationConnectMode ? "Escolha a origem" : "Conectar");
+  }
+  if (cancelButton) {
+    cancelButton.hidden = !investigationConnectMode;
+  }
+  const notesKey = getCacheKey(
+    state.revision,
+    selectedInvestigationNoteId,
+    investigationConnectMode,
+    investigationConnectFromId,
+    board.notes.map((note) => `${note.id}:${note.x}:${note.y}:${note.updatedAt}:${note.journeyEntryId}:${String(note.title || "").length}:${String(note.text || "").length}`).join(","),
+    `${board.width}x${board.height}`,
+    state.journey.entries.map((entry) => `${entry.id}:${entry.updatedAt}:${entry.image}`).join(",")
+  );
+  const notesHtml = getCachedValue(renderCache.campfireInvestigationNotesHtml, notesKey, () => board.notes.length
+    ? board.notes.map(renderInvestigationNote).join("")
+    : `<div class="investigation-empty">Nenhuma pista no quadro. Crie uma nota para começar a ligar os fios da história.</div>`);
+  setHtmlIfChanged(notesWrap, notesHtml);
+  applyInvestigationBoardSize(fitInvestigationBoardToNotes());
+  renderInvestigationLinks();
+  renderInvestigationModal();
+}
+
+function renderInvestigationNote(note) {
+  const entry = getInvestigationJourneyEntry(note);
+  const author = note.createdByHeroName || note.createdByName || "Mesa";
+  const active = selectedInvestigationNoteId === note.id ? "active" : "";
+  const connecting = investigationConnectFromId === note.id ? "connecting" : "";
+  return `
+    <article class="investigation-note note-${escapeAttr(note.color)} ${active} ${connecting}" data-note-id="${escapeAttr(note.id)}" style="left:${Math.round(note.x)}px; top:${Math.round(note.y)}px">
+      <div class="investigation-pin" aria-hidden="true"></div>
+      ${entry?.image ? `<div class="investigation-note-image" aria-label="Lembrança vinculada"><img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async"></div>` : ""}
+      <div class="investigation-note-main">
+        <strong>${escapeHtml(note.title)}</strong>
+        <span>${note.text ? escapeHtml(note.text) : "Sem descrição."}</span>
+      </div>
+      ${entry ? `<em class="investigation-journey-label">${escapeHtml(entry.title)}</em>` : ""}
+      <footer>
+        <span>${escapeHtml(author)}</span>
+        <span class="investigation-note-actions">
+          <button class="icon-button" type="button" title="Editar nota" data-action="edit-investigation-note" data-note-id="${escapeAttr(note.id)}">✎</button>
+          <button class="icon-button" type="button" title="Remover nota" data-action="delete-investigation-note" data-note-id="${escapeAttr(note.id)}">✕</button>
+        </span>
+      </footer>
+    </article>
+  `;
+}
+
+function renderInvestigationLinks() {
+  const linksSvg = $("#campfireInvestigationLinks");
+  if (!linksSvg) {
+    return;
+  }
+  const board = getInvestigationBoard();
+  const noteMap = new Map(board.notes.map((note) => [note.id, note]));
+  const linksKey = getCacheKey(
+    state.revision,
+    board.links.map((link) => `${link.id}:${link.fromNoteId}:${link.toNoteId}:${link.updatedAt}`).join(","),
+    board.notes.map((note) => `${note.id}:${note.x}:${note.y}`).join(",")
+  );
+  const linksHtml = getCachedValue(renderCache.campfireInvestigationLinksHtml, linksKey, () => board.links.map((link) => {
+    const from = noteMap.get(link.fromNoteId);
+    const to = noteMap.get(link.toNoteId);
+    if (!from || !to) {
+      return "";
+    }
+    const fromElement = document.querySelector(`.investigation-note[data-note-id="${cssEscape(from.id)}"]`);
+    const toElement = document.querySelector(`.investigation-note[data-note-id="${cssEscape(to.id)}"]`);
+    const x1 = (Number(from.x) || 0) + ((fromElement?.offsetWidth || 220) / 2);
+    const y1 = (Number(from.y) || 0) + ((fromElement?.offsetHeight || 166) / 2);
+    const x2 = (Number(to.x) || 0) + ((toElement?.offsetWidth || 220) / 2);
+    const y2 = (Number(to.y) || 0) + ((toElement?.offsetHeight || 166) / 2);
+    return `<line class="investigation-link" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" data-link-id="${escapeAttr(link.id)}"></line>`;
+  }).join(""));
+  setHtmlIfChanged(linksSvg, linksHtml);
+}
+
+function renderInvestigationModal() {
+  const modal = $("#campfireInvestigationModal");
+  const content = $("#campfireInvestigationModalContent");
+  if (!modal || !content) {
+    return;
+  }
+  const board = getInvestigationBoard();
+  const note = selectedInvestigationNoteId ? board.notes.find((item) => item.id === selectedInvestigationNoteId) : null;
+  modal.hidden = !note;
+  document.body.classList.toggle("investigation-modal-open", Boolean(note));
+  if (!note) {
+    setHtmlIfChanged(content, "");
+    return;
+  }
+  const journeyOptions = [
+    `<option value="">Sem vínculo com a Jornada</option>`,
+    ...state.journey.entries
+      .slice()
+      .sort((a, b) => a.title.localeCompare(b.title, "pt-BR"))
+      .map((entry) => `<option value="${escapeAttr(entry.id)}" ${entry.id === note.journeyEntryId ? "selected" : ""}>${escapeHtml(entry.title)}${entry.level ? ` · Nível ${escapeHtml(entry.level)}` : ""}</option>`)
+  ].join("");
+  const linkList = board.links
+    .filter((link) => link.fromNoteId === note.id || link.toNoteId === note.id)
+    .map((link) => {
+      const otherId = link.fromNoteId === note.id ? link.toNoteId : link.fromNoteId;
+      const other = board.notes.find((item) => item.id === otherId);
+      return other ? `<li><span>${escapeHtml(other.title)}</span><button class="button ghost tiny" type="button" data-action="delete-investigation-link" data-link-id="${escapeAttr(link.id)}">Remover linha</button></li>` : "";
+    })
+    .join("");
+  const key = getCacheKey(state.revision, note.id, note.updatedAt, note.journeyEntryId, board.links.length, state.journey.entries.length);
+  const html = getCachedValue(renderCache.campfireInvestigationModalHtml, key, () => `
+    <header>
+      <div>
+        <p class="eyebrow">Quadro de investigação</p>
+        <h3>${escapeHtml(note.title)}</h3>
+      </div>
+      <button class="icon-button close-button" type="button" title="Fechar nota" data-action="close-investigation-modal">X</button>
+    </header>
+    <form class="stacked-form investigation-note-form" data-note-id="${escapeAttr(note.id)}">
+      <div class="form-row">
+        <label>
+          Título
+          <input name="title" maxlength="80" value="${escapeAttr(note.title)}">
+        </label>
+        <label>
+          Cor
+          <select name="color">
+            ${["gold", "green", "blue", "violet", "red", "ash"].map((color) => `<option value="${color}" ${note.color === color ? "selected" : ""}>${escapeHtml(getInvestigationColorLabel(color))}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <label>
+        Lembrança da Jornada
+        <select name="journeyEntryId">${journeyOptions}</select>
+      </label>
+      <label>
+        Texto da nota
+        <textarea name="text" rows="5" maxlength="600">${escapeHtml(note.text || "")}</textarea>
+      </label>
+      <section class="investigation-note-links">
+        <p class="eyebrow">Conexões desta nota</p>
+        <ul>${linkList || "<li>Nenhuma linha conectada.</li>"}</ul>
+      </section>
+      <div class="button-row">
+        <button class="button primary" type="submit">Salvar nota</button>
+        <button class="button ghost" type="button" data-action="delete-investigation-note" data-note-id="${escapeAttr(note.id)}">Remover nota</button>
+      </div>
+    </form>
+  `);
+  setHtmlIfChanged(content, html);
+}
+
+function getInvestigationColorLabel(color) {
+  return { gold: "Dourada", green: "Verde", blue: "Azul", violet: "Violeta", red: "Vermelha", ash: "Cinza" }[color] || "Dourada";
+}
+
+function openInvestigationNoteModal(noteId) {
+  if (!isAuthenticated()) {
+    showToast("Faça login para usar o quadro de investigação.");
+    return;
+  }
+  const board = getInvestigationBoard();
+  if (!noteId) {
+    const author = getInvestigationAuthor();
+    const viewport = $("#campfireInvestigationViewport");
+    const note = normalizeInvestigationNote({
+      id: createId("invnote"),
+      title: "Nova pista",
+      text: "",
+      x: (viewport?.scrollLeft || 0) + 80,
+      y: (viewport?.scrollTop || 0) + 80,
+      color: "gold",
+      ...author,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }, new Map());
+    board.notes.push(note);
+    selectedInvestigationNoteId = note.id;
+    saveState();
+    renderCampfireInvestigation();
+    return;
+  }
+  selectedInvestigationNoteId = noteId;
+  renderCampfireInvestigation();
+}
+
+function closeInvestigationNoteModal() {
+  selectedInvestigationNoteId = "";
+  document.body.classList.remove("investigation-modal-open");
+  renderCampfireInvestigation();
+}
+
+function startInvestigationConnectMode() {
+  if (!isAuthenticated()) {
+    showToast("Faça login para conectar pistas.");
+    return;
+  }
+  investigationConnectMode = true;
+  investigationConnectFromId = "";
+  selectedInvestigationNoteId = "";
+  renderCampfireInvestigation();
+  showToast("Escolha a primeira nota do fio.");
+}
+
+function cancelInvestigationConnectMode() {
+  investigationConnectMode = false;
+  investigationConnectFromId = "";
+  renderCampfireInvestigation();
+}
+
+function toggleInvestigationFullscreen() {
+  investigationFullscreen = !investigationFullscreen;
+  renderCampfireInvestigation();
+}
+
+function handleInvestigationConnectSelection(noteId) {
+  const board = getInvestigationBoard();
+  const note = board.notes.find((item) => item.id === noteId);
+  if (!note) {
+    return;
+  }
+  if (!investigationConnectFromId) {
+    investigationConnectFromId = noteId;
+    renderCampfireInvestigation();
+    showToast("Agora escolha a nota de destino.");
+    return;
+  }
+  if (investigationConnectFromId === noteId) {
+    showToast("Escolha duas notas diferentes.");
+    return;
+  }
+  const exists = board.links.some((link) =>
+    (link.fromNoteId === investigationConnectFromId && link.toNoteId === noteId)
+    || (link.fromNoteId === noteId && link.toNoteId === investigationConnectFromId)
+  );
+  if (exists) {
+    investigationConnectMode = false;
+    investigationConnectFromId = "";
+    renderCampfireInvestigation();
+    showToast("Essas pistas já estão conectadas.");
+    return;
+  }
+  board.links.push({
+    id: createId("invlink"),
+    fromNoteId: investigationConnectFromId,
+    toNoteId: noteId,
+    label: "",
+    createdByUserId: getActiveUser()?.id || "",
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  });
+  investigationConnectMode = false;
+  investigationConnectFromId = "";
+  saveState();
+  renderCampfireInvestigation();
+  showToast("Pistas conectadas.");
+}
+
+function handleInvestigationBoardAction(event) {
+  if (investigationSuppressClick) {
+    investigationSuppressClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  const noteElement = event.target.closest(".investigation-note");
+  const noteId = event.target.closest("[data-note-id]")?.dataset.noteId || noteElement?.dataset.noteId || "";
+  if (investigationConnectMode && noteId) {
+    event.preventDefault();
+    event.stopPropagation();
+    handleInvestigationConnectSelection(noteId);
+    return;
+  }
+
+  const button = event.target.closest("[data-action]");
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  if (action === "edit-investigation-note") {
+    openInvestigationNoteModal(button.dataset.noteId);
+  }
+  if (action === "delete-investigation-note") {
+    deleteInvestigationNote(button.dataset.noteId);
+  }
+}
+
+function handleInvestigationModalAction(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  if (action === "close-investigation-modal") {
+    closeInvestigationNoteModal();
+  }
+  if (action === "delete-investigation-note") {
+    deleteInvestigationNote(button.dataset.noteId || selectedInvestigationNoteId);
+  }
+  if (action === "delete-investigation-link") {
+    deleteInvestigationLink(button.dataset.linkId);
+  }
+}
+
+function saveInvestigationNote(event) {
+  if (!event.target.classList.contains("investigation-note-form")) {
+    return;
+  }
+  event.preventDefault();
+  const board = getInvestigationBoard();
+  const note = board.notes.find((item) => item.id === event.target.dataset.noteId);
+  if (!note) {
+    return;
+  }
+  const title = event.target.elements.title?.value.trim() || "";
+  if (!title) {
+    showToast("Dê um título para a nota.");
+    return;
+  }
+  note.title = title;
+  note.text = event.target.elements.text?.value.trim() || "";
+  note.color = event.target.elements.color?.value || "gold";
+  note.journeyEntryId = event.target.elements.journeyEntryId?.value || "";
+  note.updatedAt = Date.now();
+  saveState();
+  renderCampfireInvestigation();
+  showToast("Nota salva.");
+}
+
+function deleteInvestigationNote(noteId) {
+  if (!noteId) {
+    return;
+  }
+  const board = getInvestigationBoard();
+  const note = board.notes.find((item) => item.id === noteId);
+  if (!note) {
+    return;
+  }
+  const linked = board.links.filter((link) => link.fromNoteId === noteId || link.toNoteId === noteId);
+  addDeletedRecord("campfireInvestigationNote", noteId);
+  linked.forEach((link) => addDeletedRecord("campfireInvestigationLink", link.id));
+  board.notes = board.notes.filter((item) => item.id !== noteId);
+  board.links = board.links.filter((link) => link.fromNoteId !== noteId && link.toNoteId !== noteId);
+  if (selectedInvestigationNoteId === noteId) {
+    selectedInvestigationNoteId = "";
+  }
+  if (investigationConnectFromId === noteId) {
+    investigationConnectFromId = "";
+    investigationConnectMode = false;
+  }
+  fitInvestigationBoardToNotes();
+  saveState();
+  renderCampfireInvestigation();
+  showToast("Nota removida.");
+}
+
+function deleteInvestigationLink(linkId) {
+  if (!linkId) {
+    return;
+  }
+  const board = getInvestigationBoard();
+  if (!board.links.some((link) => link.id === linkId)) {
+    return;
+  }
+  addDeletedRecord("campfireInvestigationLink", linkId);
+  board.links = board.links.filter((link) => link.id !== linkId);
+  saveState();
+  renderCampfireInvestigation();
+  showToast("Linha removida.");
+}
+
+function handleInvestigationPointerDown(event) {
+  if (investigationConnectMode || event.button !== 0) {
+    return;
+  }
+  const noteElement = event.target.closest(".investigation-note");
+  if (
+    !noteElement
+    || event.target.closest("input, textarea, select, a")
+    || event.target.closest("[data-action='delete-investigation-note'], [data-action='edit-investigation-note']")
+  ) {
+    return;
+  }
+  const board = getInvestigationBoard();
+  const note = board.notes.find((item) => item.id === noteElement.dataset.noteId);
+  if (!note) {
+    return;
+  }
+  investigationDragState = {
+    noteId: note.id,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    noteX: Number(note.x) || 0,
+    noteY: Number(note.y) || 0,
+    moved: false
+  };
+  noteElement.setPointerCapture?.(event.pointerId);
+  noteElement.classList.add("dragging");
+  event.preventDefault();
+  window.addEventListener("pointermove", moveInvestigationPointer);
+  window.addEventListener("pointerup", endInvestigationPointer, { once: true });
+  window.addEventListener("pointercancel", endInvestigationPointer, { once: true });
+}
+
+function moveInvestigationPointer(event) {
+  if (!investigationDragState || event.pointerId !== investigationDragState.pointerId) {
+    return;
+  }
+  const boardElement = $("#campfireInvestigationBoard");
+  const noteElement = $(`.investigation-note[data-note-id="${cssEscape(investigationDragState.noteId)}"]`);
+  const board = getInvestigationBoard();
+  const note = board.notes.find((item) => item.id === investigationDragState.noteId);
+  if (!boardElement || !noteElement || !note) {
+    return;
+  }
+  const dx = event.clientX - investigationDragState.startX;
+  const dy = event.clientY - investigationDragState.startY;
+  if (Math.abs(dx) + Math.abs(dy) > 3) {
+    investigationDragState.moved = true;
+  }
+  note.x = clamp(investigationDragState.noteX + dx, 0, 5000 - noteElement.offsetWidth - 24);
+  note.y = clamp(investigationDragState.noteY + dy, 0, 4000 - noteElement.offsetHeight - 24);
+  fitInvestigationBoardToNotes();
+  applyInvestigationBoardSize(board);
+  noteElement.style.left = `${Math.round(note.x)}px`;
+  noteElement.style.top = `${Math.round(note.y)}px`;
+  renderInvestigationLinks();
+}
+
+function endInvestigationPointer() {
+  if (!investigationDragState) {
+    return;
+  }
+  const noteElement = $(`.investigation-note[data-note-id="${cssEscape(investigationDragState.noteId)}"]`);
+  noteElement?.classList.remove("dragging");
+  const board = getInvestigationBoard();
+  const note = board.notes.find((item) => item.id === investigationDragState.noteId);
+  if (investigationDragState.moved && note) {
+    investigationSuppressClick = true;
+    window.setTimeout(() => {
+      investigationSuppressClick = false;
+    }, 120);
+    fitInvestigationBoardToNotes();
+    note.updatedAt = Date.now();
+    saveInvestigationMoveSoon();
+    renderCampfireInvestigation();
+  }
+  investigationDragState = null;
+  window.removeEventListener("pointermove", moveInvestigationPointer);
+}
+
+function saveInvestigationMoveSoon() {
+  clearTimeout(investigationMoveSaveTimer);
+  investigationMoveSaveTimer = setTimeout(() => saveState(), 450);
+}
+
+function handleInvestigationKeydown(event) {
+  if (event.key === "Escape") {
+    if (selectedInvestigationNoteId) {
+      closeInvestigationNoteModal();
+    } else if (investigationConnectMode) {
+      cancelInvestigationConnectMode();
+    } else if (investigationFullscreen) {
+      toggleInvestigationFullscreen();
+    }
+  }
 }
 
 function openNewCampfireHeroForm() {

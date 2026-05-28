@@ -668,32 +668,32 @@
             <div class="campfire-gallery" id="campfireGallery"></div>
           </section>
 
-          <section class="panel campfire-notes">
+          <section class="panel campfire-notes campfire-investigation">
             <div class="section-header">
               <div>
                 <p class="eyebrow">Minimus Legio</p>
-                <h2>Anotações do grupo</h2>
+                <h2>Quadro de Investigação</h2>
               </div>
-              <button class="button ghost" id="toggleCampfireLegionEditor" type="button">Editar</button>
+              <div class="button-row compact">
+                <button class="button primary" id="newInvestigationNote" type="button">Nova nota</button>
+                <button class="button ghost" id="connectInvestigationNotes" type="button">Conectar</button>
+                <button class="button ghost" id="fullscreenInvestigationBoard" type="button">Tela cheia</button>
+                <button class="button ghost" id="cancelInvestigationConnect" type="button" hidden>Cancelar conexão</button>
+              </div>
             </div>
             <p class="muted campfire-notes-lead">
-              Guardem aqui planos, relações e descobertas que mereçam voltar à conversa. Separem as anotações em parágrafos para que a memória da mesa continue legível.
+              Organizem pistas, suspeitas e lembranças da Jornada. Arraste notas pelo quadro e conecte ideias para revelar os fios da campanha.
             </p>
-            <div class="campfire-notes-read" id="campfireLegionRead">
-              <div class="campfire-notes-copy" id="campfireLegionDisplay"></div>
-            </div>
-            <form id="campfireLegionForm" class="stacked-form" hidden>
-              <label>
-                Caderno da companhia
-                <textarea id="campfireLegionNotes" rows="14" spellcheck="true" placeholder="Registre planos, juramentos, sinais, combinações e tudo o que o grupo quiser preservar.
-
-Use uma linha em branco para separar novas anotações em parágrafos."></textarea>
-              </label>
-              <div class="button-row">
-                <button class="button primary" type="submit">Salvar anotações</button>
-                <button class="button ghost" id="cancelCampfireLegionEdit" type="button">Cancelar</button>
+            <div class="investigation-board-shell" id="campfireInvestigationViewport">
+              <div class="investigation-board" id="campfireInvestigationBoard">
+                <svg class="investigation-links" id="campfireInvestigationLinks" aria-hidden="true"></svg>
+                <div class="investigation-notes" id="campfireInvestigationNotes"></div>
               </div>
-            </form>
+            </div>
+            <div class="investigation-modal" id="campfireInvestigationModal" hidden>
+              <div class="investigation-modal-backdrop" data-action="close-investigation-modal"></div>
+              <div class="investigation-modal-card" id="campfireInvestigationModalContent"></div>
+            </div>
           </section>
         </section>
 

@@ -1988,11 +1988,11 @@ button:focus-visible,
   --icon: var(--icon-trash);
 }
 
-.icon-button[data-action="close-journey-modal"] {
-  --icon: var(--icon-close);
-}
-
-.icon-button[data-action="close-room-upgrade"] {
+.icon-button[data-action^="close-"],
+.icon-button[data-action^="cancel-"],
+.icon-button.close-button,
+.icon-button[title^="Fechar"],
+.icon-button[aria-label^="Fechar"] {
   --icon: var(--icon-close);
 }
 
@@ -2626,6 +2626,350 @@ legend {
   min-height: 320px;
   line-height: 1.55;
   resize: vertical;
+}
+
+.campfire-investigation {
+  overflow: visible;
+}
+
+.campfire-investigation .section-header {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.campfire-investigation .button-row.compact {
+  justify-content: flex-end;
+}
+
+.campfire-investigation .button.active {
+  border-color: rgba(231, 197, 123, 0.72);
+  background:
+    linear-gradient(135deg, rgba(231, 197, 123, 0.16), rgba(44, 182, 136, 0.08)),
+    rgba(11, 18, 21, 0.9);
+  color: var(--text);
+}
+
+.campfire-investigation.is-fullscreen {
+  position: fixed;
+  inset: 12px;
+  z-index: 950;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  margin: 0;
+  padding: clamp(14px, 2vw, 24px);
+  background:
+    radial-gradient(circle at 18% 12%, rgba(231, 197, 123, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(16, 27, 31, 0.99), rgba(3, 8, 10, 0.99));
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.66);
+}
+
+.campfire-investigation.is-fullscreen .investigation-board-shell {
+  height: auto;
+  min-height: 0;
+}
+
+.investigation-board-shell {
+  position: relative;
+  height: min(72vh, 760px);
+  min-height: 480px;
+  overflow: auto;
+  border: 1px solid rgba(179, 145, 78, 0.32);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(231, 197, 123, 0.09), transparent 28%),
+    radial-gradient(circle at 72% 36%, rgba(52, 173, 139, 0.1), transparent 32%),
+    linear-gradient(135deg, rgba(65, 45, 25, 0.18), transparent 35%),
+    rgba(4, 10, 13, 0.86);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+  scrollbar-color: rgba(231, 197, 123, 0.48) rgba(4, 10, 13, 0.9);
+}
+
+.investigation-board {
+  position: relative;
+  width: 1800px;
+  height: 1250px;
+  min-width: 100%;
+}
+
+.investigation-links,
+.investigation-notes {
+  position: absolute;
+  inset: 0;
+}
+
+.investigation-links {
+  width: 1800px;
+  height: 1250px;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.investigation-link {
+  stroke: rgba(219, 174, 93, 0.58);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 7 8;
+  filter: drop-shadow(0 0 5px rgba(198, 146, 68, 0.16));
+}
+
+.investigation-empty {
+  position: absolute;
+  left: 32px;
+  top: 32px;
+  max-width: 360px;
+  padding: 18px;
+  border: 1px dashed rgba(231, 197, 123, 0.28);
+  border-radius: 12px;
+  color: rgba(246, 235, 213, 0.68);
+  background: rgba(5, 11, 14, 0.62);
+}
+
+.investigation-note {
+  position: absolute;
+  width: 220px;
+  min-height: 166px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgba(231, 197, 123, 0.34);
+  border-radius: 10px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.055), transparent 32%),
+    rgba(31, 28, 22, 0.94);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.28);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.investigation-note.dragging {
+  cursor: grabbing;
+  transform: rotate(0deg) scale(1.018);
+  z-index: 8;
+}
+
+.investigation-note.active,
+.investigation-note.connecting {
+  border-color: rgba(246, 218, 146, 0.86);
+  box-shadow: 0 0 0 2px rgba(231, 197, 123, 0.13), 0 24px 40px rgba(0, 0, 0, 0.36);
+  z-index: 6;
+}
+
+.investigation-note.note-green {
+  border-color: rgba(66, 184, 128, 0.45);
+  background: linear-gradient(160deg, rgba(66, 184, 128, 0.11), transparent 35%), rgba(18, 31, 25, 0.95);
+}
+
+.investigation-note.note-blue {
+  border-color: rgba(104, 154, 201, 0.45);
+  background: linear-gradient(160deg, rgba(104, 154, 201, 0.12), transparent 35%), rgba(16, 26, 35, 0.95);
+}
+
+.investigation-note.note-violet {
+  border-color: rgba(158, 117, 203, 0.48);
+  background: linear-gradient(160deg, rgba(158, 117, 203, 0.12), transparent 35%), rgba(28, 21, 36, 0.95);
+}
+
+.investigation-note.note-red {
+  border-color: rgba(189, 84, 74, 0.5);
+  background: linear-gradient(160deg, rgba(189, 84, 74, 0.12), transparent 35%), rgba(37, 20, 18, 0.95);
+}
+
+.investigation-note.note-ash {
+  border-color: rgba(185, 191, 184, 0.32);
+  background: linear-gradient(160deg, rgba(185, 191, 184, 0.08), transparent 35%), rgba(22, 25, 25, 0.96);
+}
+
+.investigation-pin {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff2bd, #b48337 58%, #2b1a08 100%);
+  box-shadow: 0 0 8px rgba(231, 197, 123, 0.42);
+}
+
+.investigation-note-image {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  background: rgba(4, 10, 13, 0.68);
+  pointer-events: none;
+}
+
+.investigation-note-image img {
+  display: block;
+  width: 100%;
+  max-height: 86px;
+  object-fit: contain;
+}
+
+.investigation-note-main {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.investigation-note-main strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.investigation-note-main span {
+  display: block;
+  color: rgba(246, 235, 213, 0.8);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  text-align: justify;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: visible;
+}
+
+.investigation-journey-label {
+  color: rgba(154, 231, 203, 0.84);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.investigation-note footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: rgba(246, 235, 213, 0.58);
+  font-size: 0.75rem;
+}
+
+.investigation-note footer .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.investigation-note-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.investigation-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 44px);
+}
+
+.investigation-modal[hidden] {
+  display: none !important;
+}
+
+body.investigation-modal-open {
+  overflow: hidden;
+}
+
+.investigation-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(1, 5, 7, 0.72);
+  backdrop-filter: blur(7px);
+}
+
+.investigation-modal-card {
+  position: relative;
+  width: min(760px, 100%);
+  max-height: min(88vh, 880px);
+  overflow: auto;
+  padding: clamp(18px, 3vw, 26px);
+  border: 1px solid rgba(231, 197, 123, 0.38);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 22% 8%, rgba(231, 197, 123, 0.1), transparent 35%),
+    linear-gradient(180deg, rgba(19, 31, 35, 0.98), rgba(5, 10, 13, 0.98));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.54);
+}
+
+.investigation-modal-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.investigation-modal-card h3 {
+  margin: 0;
+}
+
+.investigation-note-links ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.investigation-note-links li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(231, 197, 123, 0.18);
+  border-radius: 8px;
+  background: rgba(3, 9, 12, 0.45);
+}
+
+@media (max-width: 760px) {
+  .campfire-investigation .section-header {
+    align-items: stretch;
+  }
+
+  .campfire-investigation .button-row.compact {
+    justify-content: stretch;
+  }
+
+  .campfire-investigation .button-row.compact .button {
+    flex: 1 1 auto;
+  }
+
+  .investigation-board-shell {
+    height: 68vh;
+    min-height: 420px;
+  }
+
+  .investigation-board,
+  .investigation-links {
+    width: 1320px;
+    height: 980px;
+  }
+
+  .investigation-note {
+    width: 210px;
+  }
+
+  .investigation-modal {
+    padding: 12px;
+  }
+
+  .investigation-modal-card {
+    max-height: 92vh;
+  }
 }
 
 .journey-intro {

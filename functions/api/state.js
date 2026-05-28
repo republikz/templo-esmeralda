@@ -352,6 +352,21 @@ function mergeJourneyEntry(currentEntry, incomingEntry, tombstones) {
   return base;
 }
 
+function mergeInvestigationBoard(currentBoard, incomingBoard, tombstones) {
+  const notes = mergeArrayById(currentBoard?.notes, incomingBoard?.notes, "campfireInvestigationNote", tombstones);
+  const noteIds = new Set(notes.map((note) => note.id));
+  const links = mergeArrayById(currentBoard?.links, incomingBoard?.links, "campfireInvestigationLink", tombstones)
+    .filter((link) => noteIds.has(link.fromNoteId) && noteIds.has(link.toNoteId));
+  const maxRight = notes.reduce((max, note) => Math.max(max, (Number(note.x) || 0) + 260), 0);
+  const maxBottom = notes.reduce((max, note) => Math.max(max, (Number(note.y) || 0) + 230), 0);
+  return {
+    width: Math.max(1200, Math.min(5000, Math.ceil(maxRight + 360))),
+    height: Math.max(900, Math.min(4000, Math.ceil(maxBottom + 300))),
+    notes,
+    links
+  };
+}
+
 function mergeStates(currentState, incomingState) {
   const current = cleanIncomingState(currentState);
   const incoming = cleanIncomingState(incomingState);
@@ -381,7 +396,8 @@ function mergeStates(currentState, incomingState) {
   merged.campfire = {
     ...(current.campfire || {}),
     legionNotes: changedFields.has("campfire.legionNotes") ? incoming.campfire?.legionNotes : current.campfire?.legionNotes,
-    heroes: mergeArrayById(current.campfire?.heroes, incoming.campfire?.heroes, "campfireHero", tombstones, mergeCampfireHero)
+    heroes: mergeArrayById(current.campfire?.heroes, incoming.campfire?.heroes, "campfireHero", tombstones, mergeCampfireHero),
+    investigationBoard: mergeInvestigationBoard(current.campfire?.investigationBoard, incoming.campfire?.investigationBoard, tombstones)
   };
 
   merged.journey = {
