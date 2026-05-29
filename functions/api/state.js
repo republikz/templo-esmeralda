@@ -1,6 +1,12 @@
 const DEFAULT_TABLE = "campaign_state";
 const DEFAULT_BUCKET = "campaign-assets";
 const DEFAULT_ROW_ID = "main";
+const INVESTIGATION_BOARD_MIN_WIDTH = 1200;
+const INVESTIGATION_BOARD_MIN_HEIGHT = 900;
+const INVESTIGATION_BOARD_MAX_WIDTH = 5000;
+const INVESTIGATION_BOARD_MAX_HEIGHT = 4000;
+const INVESTIGATION_BOARD_MARGIN_X = 360;
+const INVESTIGATION_BOARD_MARGIN_Y = 300;
 
 function getConfig(env) {
   const supabaseUrl = String(env.SUPABASE_URL || "").replace(/\/+$/, "");
@@ -352,16 +358,67 @@ function mergeJourneyEntry(currentEntry, incomingEntry, tombstones) {
   return base;
 }
 
+function mergeInvestigationNote(currentNote, incomingNote) {
+  const currentContentTime = Number(currentNote?.contentUpdatedAt) || recordTime(currentNote);
+  const incomingContentTime = Number(incomingNote?.contentUpdatedAt) || recordTime(incomingNote);
+  const currentPositionTime = Number(currentNote?.positionUpdatedAt) || recordTime(currentNote);
+  const incomingPositionTime = Number(incomingNote?.positionUpdatedAt) || recordTime(incomingNote);
+  const base = isNewer(incomingNote, currentNote)
+    ? { ...cloneState(currentNote), ...cloneState(incomingNote) }
+    : { ...cloneState(incomingNote), ...cloneState(currentNote) };
+  const contentSource = incomingContentTime >= currentContentTime ? incomingNote : currentNote;
+  const positionSource = incomingPositionTime >= currentPositionTime ? incomingNote : currentNote;
+  base.title = String(
+    Object.prototype.hasOwnProperty.call(contentSource || {}, "title") ? contentSource.title : base.title || ""
+  ).trim() || "Nota sem título";
+  base.text = Object.prototype.hasOwnProperty.call(contentSource || {}, "text")
+    ? String(contentSource.text || "").trim()
+    : String(base.text || "").trim();
+  base.color = contentSource.color || base.color || "gold";
+  base.journeyEntryId = Object.prototype.hasOwnProperty.call(contentSource || {}, "journeyEntryId")
+    ? contentSource.journeyEntryId || ""
+    : base.journeyEntryId || "";
+  base.contentUpdatedAt = Math.max(currentContentTime, incomingContentTime);
+  const size = getInvestigationNoteEstimatedSize(base);
+  base.x = Math.max(0, Math.min(INVESTIGATION_BOARD_MAX_WIDTH - size.width - 24, Number(positionSource.x) || 0));
+  base.y = Math.max(0, Math.min(INVESTIGATION_BOARD_MAX_HEIGHT - size.height - 24, Number(positionSource.y) || 0));
+  base.positionUpdatedAt = Math.max(currentPositionTime, incomingPositionTime);
+  base.updatedAt = Math.max(recordTime(currentNote), recordTime(incomingNote), base.contentUpdatedAt, base.positionUpdatedAt);
+  return base;
+}
+
+function getInvestigationNoteEstimatedSize(note) {
+  return {
+    width: 220,
+    height: Math.max(166, 128 + Math.ceil(String(note?.text || "").length / 48) * 18 + (note?.journeyEntryId ? 104 : 0))
+  };
+}
+
+function getInvestigationBoardSize(notes) {
+  const safeNotes = Array.isArray(notes) ? notes : [];
+  const maxRight = safeNotes.reduce((max, note) => {
+    const size = getInvestigationNoteEstimatedSize(note);
+    return Math.max(max, (Number(note.x) || 0) + size.width);
+  }, 0);
+  const maxBottom = safeNotes.reduce((max, note) => {
+    const size = getInvestigationNoteEstimatedSize(note);
+    return Math.max(max, (Number(note.y) || 0) + size.height);
+  }, 0);
+  return {
+    width: Math.max(INVESTIGATION_BOARD_MIN_WIDTH, Math.min(INVESTIGATION_BOARD_MAX_WIDTH, Math.ceil(maxRight + INVESTIGATION_BOARD_MARGIN_X))),
+    height: Math.max(INVESTIGATION_BOARD_MIN_HEIGHT, Math.min(INVESTIGATION_BOARD_MAX_HEIGHT, Math.ceil(maxBottom + INVESTIGATION_BOARD_MARGIN_Y)))
+  };
+}
+
 function mergeInvestigationBoard(currentBoard, incomingBoard, tombstones) {
-  const notes = mergeArrayById(currentBoard?.notes, incomingBoard?.notes, "campfireInvestigationNote", tombstones);
+  const notes = mergeArrayById(currentBoard?.notes, incomingBoard?.notes, "campfireInvestigationNote", tombstones, mergeInvestigationNote);
   const noteIds = new Set(notes.map((note) => note.id));
   const links = mergeArrayById(currentBoard?.links, incomingBoard?.links, "campfireInvestigationLink", tombstones)
     .filter((link) => noteIds.has(link.fromNoteId) && noteIds.has(link.toNoteId));
-  const maxRight = notes.reduce((max, note) => Math.max(max, (Number(note.x) || 0) + 260), 0);
-  const maxBottom = notes.reduce((max, note) => Math.max(max, (Number(note.y) || 0) + 230), 0);
+  const size = getInvestigationBoardSize(notes);
   return {
-    width: Math.max(1200, Math.min(5000, Math.ceil(maxRight + 360))),
-    height: Math.max(900, Math.min(4000, Math.ceil(maxBottom + 300))),
+    width: size.width,
+    height: size.height,
     migratedFromLegionNotesAt: Math.max(
       Number(currentBoard?.migratedFromLegionNotesAt) || 0,
       Number(incomingBoard?.migratedFromLegionNotesAt) || 0

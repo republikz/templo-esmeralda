@@ -70,6 +70,12 @@ const CANONICAL_MASTER = {
 
 const SYNC_INTERVAL_MS = 60000;
 const MIN_SYNC_GAP_MS = 15000;
+const INVESTIGATION_BOARD_MIN_WIDTH = 1200;
+const INVESTIGATION_BOARD_MIN_HEIGHT = 900;
+const INVESTIGATION_BOARD_MAX_WIDTH = 5000;
+const INVESTIGATION_BOARD_MAX_HEIGHT = 4000;
+const INVESTIGATION_BOARD_MARGIN_X = 360;
+const INVESTIGATION_BOARD_MARGIN_Y = 300;
 
 let activeView = "dashboard";
 let catalog = [];
@@ -95,7 +101,6 @@ let investigationConnectMode = false;
 let investigationConnectFromId = "";
 let investigationDragState = null;
 let investigationSuppressClick = false;
-let investigationMoveSaveTimer = null;
 let pendingInvestigationDeleteId = "";
 
 function isLocalDevelopmentHost() {
@@ -1070,9 +1075,10 @@ function normalizeInvestigationBoard(board, legacyNotes, userLookup) {
       });
   }
   const noteIds = new Set(notes.map((note) => note.id));
+  const derivedSize = getInvestigationBoardSize(notes);
   return {
-    width: Math.max(1200, Math.min(5000, Number(source.width) || 1800)),
-    height: Math.max(900, Math.min(4000, Number(source.height) || 1250)),
+    width: derivedSize.width || Math.max(INVESTIGATION_BOARD_MIN_WIDTH, Math.min(INVESTIGATION_BOARD_MAX_WIDTH, Number(source.width) || 1800)),
+    height: derivedSize.height || Math.max(INVESTIGATION_BOARD_MIN_HEIGHT, Math.min(INVESTIGATION_BOARD_MAX_HEIGHT, Number(source.height) || 1250)),
     migratedFromLegionNotesAt,
     notes,
     links: links.filter((link) => noteIds.has(link.fromNoteId) && noteIds.has(link.toNoteId) && link.fromNoteId !== link.toNoteId)
@@ -1086,20 +1092,27 @@ function normalizeInvestigationNote(note, userLookup) {
   const createdByUserId = note.createdByUserId || "";
   const creator = createdByUserId ? userLookup.get(createdByUserId) : null;
   const color = ["gold", "green", "blue", "violet", "red", "ash"].includes(note.color) ? note.color : "gold";
+  const createdAt = Number(note.createdAt) || Date.now();
+  const updatedAt = Number(note.updatedAt) || createdAt;
+  const contentUpdatedAt = Number(note.contentUpdatedAt) || updatedAt;
+  const positionUpdatedAt = Number(note.positionUpdatedAt) || updatedAt;
+  const estimatedSize = getInvestigationNoteEstimatedSize(note);
   return {
     id: note.id || createId("invnote"),
     title: String(note.title || "").trim() || "Nota sem título",
     text: String(note.text || "").trim(),
-    x: Math.max(0, Math.min(1600, Number(note.x) || 40)),
-    y: Math.max(0, Math.min(1100, Number(note.y) || 40)),
+    x: Math.max(0, Math.min(INVESTIGATION_BOARD_MAX_WIDTH - estimatedSize.width - 24, Number(note.x) || 40)),
+    y: Math.max(0, Math.min(INVESTIGATION_BOARD_MAX_HEIGHT - estimatedSize.height - 24, Number(note.y) || 40)),
     color,
     journeyEntryId: note.journeyEntryId || "",
     createdByUserId,
     createdByName: String(note.createdByName || "").trim() || creator?.name || "Mesa",
     createdByHeroId: note.createdByHeroId || "",
     createdByHeroName: String(note.createdByHeroName || "").trim(),
-    createdAt: Number(note.createdAt) || Date.now(),
-    updatedAt: Number(note.updatedAt) || Date.now()
+    createdAt,
+    updatedAt,
+    contentUpdatedAt,
+    positionUpdatedAt
   };
 }
 
@@ -1554,7 +1567,7 @@ async function persistState(payload) {
     if (text.trim()) {
       const serverState = normalizeState(JSON.parse(text));
       setSyncedStateBaseline(serverState);
-      if (!pendingPayload) {
+      if (!pendingPayload && !investigationDragState) {
         state = serverState;
         saveLocalState(state);
         applySessionToState();
@@ -1594,7 +1607,7 @@ function startStateSync() {
 }
 
 function requestStateSync(options = {}) {
-  if (document.hidden || saveInFlight || pendingPayload) {
+  if (document.hidden || saveInFlight || pendingPayload || investigationDragState) {
     return;
   }
   const now = Date.now();
@@ -1605,7 +1618,7 @@ function requestStateSync(options = {}) {
 }
 
 async function syncStateFromServer() {
-  if (syncInFlight || saveInFlight || pendingPayload) {
+  if (syncInFlight || saveInFlight || pendingPayload || investigationDragState) {
     return;
   }
   const now = Date.now();
@@ -1626,7 +1639,7 @@ async function syncStateFromServer() {
     const remote = normalizeState(JSON.parse(text));
     const localRevision = Number(state.revision) || 0;
     const remoteRevision = Number(remote.revision) || 0;
-    if (remoteRevision > localRevision) {
+    if (remoteRevision > localRevision && !investigationDragState) {
       state = remote;
       const upgradesApplied = applyCompletedRoomUpgrades({ silent: true });
       setSyncedStateBaseline(state);
@@ -5359,28 +5372,48 @@ function getInvestigationBoard() {
   state.campfire.investigationBoard = state.campfire.investigationBoard && typeof state.campfire.investigationBoard === "object"
     ? state.campfire.investigationBoard
     : { notes: [], links: [] };
-  state.campfire.investigationBoard.width = Math.max(1200, Math.min(5000, Number(state.campfire.investigationBoard.width) || 1800));
-  state.campfire.investigationBoard.height = Math.max(900, Math.min(4000, Number(state.campfire.investigationBoard.height) || 1250));
+  state.campfire.investigationBoard.width = Math.max(INVESTIGATION_BOARD_MIN_WIDTH, Math.min(INVESTIGATION_BOARD_MAX_WIDTH, Number(state.campfire.investigationBoard.width) || 1800));
+  state.campfire.investigationBoard.height = Math.max(INVESTIGATION_BOARD_MIN_HEIGHT, Math.min(INVESTIGATION_BOARD_MAX_HEIGHT, Number(state.campfire.investigationBoard.height) || 1250));
   state.campfire.investigationBoard.notes = Array.isArray(state.campfire.investigationBoard.notes) ? state.campfire.investigationBoard.notes : [];
   state.campfire.investigationBoard.links = Array.isArray(state.campfire.investigationBoard.links) ? state.campfire.investigationBoard.links : [];
   return state.campfire.investigationBoard;
 }
 
-function fitInvestigationBoardToNotes() {
-  const board = getInvestigationBoard();
-  const maxRight = board.notes.reduce((max, note) => {
-    const element = document.querySelector(`.investigation-note[data-note-id="${cssEscape(note.id)}"]`);
-    const width = element?.offsetWidth || 260;
+function getInvestigationNoteEstimatedSize(note) {
+  return {
+    width: 220,
+    height: Math.max(166, 128 + Math.ceil(String(note?.text || "").length / 48) * 18 + (note?.journeyEntryId ? 104 : 0))
+  };
+}
+
+function getInvestigationBoardSize(notes, measureNote) {
+  const safeNotes = Array.isArray(notes) ? notes : [];
+  const maxRight = safeNotes.reduce((max, note) => {
+    const measured = measureNote ? measureNote(note) : null;
+    const fallback = getInvestigationNoteEstimatedSize(note);
+    const width = measured?.width || fallback.width;
     return Math.max(max, (Number(note.x) || 0) + width);
   }, 0);
-  const maxBottom = board.notes.reduce((max, note) => {
-    const element = document.querySelector(`.investigation-note[data-note-id="${cssEscape(note.id)}"]`);
-    const fallbackHeight = Math.max(230, 142 + Math.ceil(String(note.text || "").length / 42) * 18 + (note.journeyEntryId ? 94 : 0));
-    const height = element?.offsetHeight || fallbackHeight;
+  const maxBottom = safeNotes.reduce((max, note) => {
+    const measured = measureNote ? measureNote(note) : null;
+    const fallback = getInvestigationNoteEstimatedSize(note);
+    const height = measured?.height || fallback.height;
     return Math.max(max, (Number(note.y) || 0) + height);
   }, 0);
-  board.width = Math.max(1200, Math.min(5000, Math.ceil(maxRight + 360)));
-  board.height = Math.max(900, Math.min(4000, Math.ceil(maxBottom + 300)));
+  return {
+    width: Math.max(INVESTIGATION_BOARD_MIN_WIDTH, Math.min(INVESTIGATION_BOARD_MAX_WIDTH, Math.ceil(maxRight + INVESTIGATION_BOARD_MARGIN_X))),
+    height: Math.max(INVESTIGATION_BOARD_MIN_HEIGHT, Math.min(INVESTIGATION_BOARD_MAX_HEIGHT, Math.ceil(maxBottom + INVESTIGATION_BOARD_MARGIN_Y)))
+  };
+}
+
+function fitInvestigationBoardToNotes() {
+  const board = getInvestigationBoard();
+  const nextSize = getInvestigationBoardSize(board.notes, (note) => {
+    const element = document.querySelector(`.investigation-note[data-note-id="${cssEscape(note.id)}"]`);
+    return element ? { width: element.offsetWidth, height: element.offsetHeight } : null;
+  });
+  board.width = nextSize.width;
+  board.height = nextSize.height;
   return board;
 }
 
@@ -5449,7 +5482,7 @@ function renderCampfireInvestigation() {
     selectedInvestigationNoteId,
     investigationConnectMode,
     investigationConnectFromId,
-    board.notes.map((note) => `${note.id}:${note.x}:${note.y}:${note.updatedAt}:${note.journeyEntryId}:${String(note.title || "").length}:${String(note.text || "").length}`).join(","),
+    board.notes.map((note) => `${note.id}:${note.x}:${note.y}:${note.updatedAt}:${note.contentUpdatedAt}:${note.positionUpdatedAt}:${note.journeyEntryId}:${String(note.title || "").length}:${String(note.text || "").length}`).join(","),
     `${board.width}x${board.height}`,
     state.journey.entries.map((entry) => `${entry.id}:${entry.updatedAt}:${entry.image}`).join(",")
   );
@@ -5497,7 +5530,7 @@ function renderInvestigationLinks() {
   const linksKey = getCacheKey(
     state.revision,
     board.links.map((link) => `${link.id}:${link.fromNoteId}:${link.toNoteId}:${link.updatedAt}`).join(","),
-    board.notes.map((note) => `${note.id}:${note.x}:${note.y}`).join(",")
+    board.notes.map((note) => `${note.id}:${note.x}:${note.y}:${note.positionUpdatedAt}:${note.contentUpdatedAt}:${String(note.title || "").length}:${String(note.text || "").length}:${note.journeyEntryId || ""}`).join(",")
   );
   const linksHtml = getCachedValue(renderCache.campfireInvestigationLinksHtml, linksKey, () => board.links.map((link) => {
     const from = noteMap.get(link.fromNoteId);
@@ -5507,13 +5540,46 @@ function renderInvestigationLinks() {
     }
     const fromElement = document.querySelector(`.investigation-note[data-note-id="${cssEscape(from.id)}"]`);
     const toElement = document.querySelector(`.investigation-note[data-note-id="${cssEscape(to.id)}"]`);
-    const x1 = (Number(from.x) || 0) + ((fromElement?.offsetWidth || 220) / 2);
-    const y1 = (Number(from.y) || 0) + ((fromElement?.offsetHeight || 166) / 2);
-    const x2 = (Number(to.x) || 0) + ((toElement?.offsetWidth || 220) / 2);
-    const y2 = (Number(to.y) || 0) + ((toElement?.offsetHeight || 166) / 2);
+    const { x: x1, y: y1 } = getInvestigationNoteCenter(from, fromElement);
+    const { x: x2, y: y2 } = getInvestigationNoteCenter(to, toElement);
     return `<line class="investigation-link" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" data-link-id="${escapeAttr(link.id)}"></line>`;
   }).join(""));
   setHtmlIfChanged(linksSvg, linksHtml);
+}
+
+function getInvestigationNoteCenter(note, element) {
+  return {
+    x: (Number(note.x) || 0) + ((element?.offsetWidth || 220) / 2),
+    y: (Number(note.y) || 0) + ((element?.offsetHeight || 166) / 2)
+  };
+}
+
+function updateInvestigationLinkPositions(noteId = "") {
+  const linksSvg = $("#campfireInvestigationLinks");
+  if (!linksSvg) {
+    return;
+  }
+  const board = getInvestigationBoard();
+  const noteMap = new Map(board.notes.map((note) => [note.id, note]));
+  board.links.forEach((link) => {
+    if (noteId && link.fromNoteId !== noteId && link.toNoteId !== noteId) {
+      return;
+    }
+    const line = linksSvg.querySelector(`[data-link-id="${cssEscape(link.id)}"]`);
+    const from = noteMap.get(link.fromNoteId);
+    const to = noteMap.get(link.toNoteId);
+    if (!line || !from || !to) {
+      return;
+    }
+    const fromElement = document.querySelector(`.investigation-note[data-note-id="${cssEscape(from.id)}"]`);
+    const toElement = document.querySelector(`.investigation-note[data-note-id="${cssEscape(to.id)}"]`);
+    const fromCenter = getInvestigationNoteCenter(from, fromElement);
+    const toCenter = getInvestigationNoteCenter(to, toElement);
+    line.setAttribute("x1", String(Math.round(fromCenter.x)));
+    line.setAttribute("y1", String(Math.round(fromCenter.y)));
+    line.setAttribute("x2", String(Math.round(toCenter.x)));
+    line.setAttribute("y2", String(Math.round(toCenter.y)));
+  });
 }
 
 function renderInvestigationModal() {
@@ -5633,7 +5699,9 @@ function openInvestigationNoteModal(noteId) {
       color: "gold",
       ...author,
       createdAt: Date.now(),
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      contentUpdatedAt: Date.now(),
+      positionUpdatedAt: Date.now()
     }, new Map());
     board.notes.push(note);
     selectedInvestigationNoteId = note.id;
@@ -5764,8 +5832,7 @@ function handleInvestigationModalAction(event) {
     confirmDeleteInvestigationNote(button.dataset.noteId || pendingInvestigationDeleteId);
   }
   if (action === "cancel-delete-investigation-note") {
-    pendingInvestigationDeleteId = "";
-    renderInvestigationModal();
+    closeInvestigationNoteModal();
   }
   if (action === "delete-investigation-link") {
     deleteInvestigationLink(button.dataset.linkId);
@@ -5791,9 +5858,11 @@ function saveInvestigationNote(event) {
   note.text = event.target.elements.text?.value.trim() || "";
   note.color = event.target.elements.color?.value || "gold";
   note.journeyEntryId = event.target.elements.journeyEntryId?.value || "";
-  note.updatedAt = Date.now();
+  note.contentUpdatedAt = Date.now();
+  note.updatedAt = Math.max(Number(note.contentUpdatedAt) || 0, Number(note.positionUpdatedAt) || 0, Date.now());
   selectedInvestigationNoteId = "";
   document.body.classList.remove("investigation-modal-open");
+  fitInvestigationBoardToNotes();
   saveState();
   renderCampfireInvestigation();
   showToast("Nota salva.");
@@ -5907,13 +5976,14 @@ function moveInvestigationPointer(event) {
   if (Math.abs(dx) + Math.abs(dy) > 3) {
     investigationDragState.moved = true;
   }
-  note.x = clamp(investigationDragState.noteX + dx, 0, 5000 - noteElement.offsetWidth - 24);
-  note.y = clamp(investigationDragState.noteY + dy, 0, 4000 - noteElement.offsetHeight - 24);
-  fitInvestigationBoardToNotes();
-  applyInvestigationBoardSize(board);
+  if (!investigationDragState.moved) {
+    return;
+  }
+  note.x = clamp(investigationDragState.noteX + dx, 0, INVESTIGATION_BOARD_MAX_WIDTH - noteElement.offsetWidth - 24);
+  note.y = clamp(investigationDragState.noteY + dy, 0, INVESTIGATION_BOARD_MAX_HEIGHT - noteElement.offsetHeight - 24);
   noteElement.style.left = `${Math.round(note.x)}px`;
   noteElement.style.top = `${Math.round(note.y)}px`;
-  renderInvestigationLinks();
+  updateInvestigationLinkPositions(note.id);
 }
 
 function endInvestigationPointer() {
@@ -5929,18 +5999,19 @@ function endInvestigationPointer() {
     window.setTimeout(() => {
       investigationSuppressClick = false;
     }, 120);
+    note.positionUpdatedAt = Date.now();
+    note.updatedAt = Math.max(Number(note.contentUpdatedAt) || 0, Number(note.positionUpdatedAt) || 0);
     fitInvestigationBoardToNotes();
-    note.updatedAt = Date.now();
+    applyInvestigationBoardSize(board);
+    renderInvestigationLinks();
     saveInvestigationMoveSoon();
-    renderCampfireInvestigation();
   }
   investigationDragState = null;
   window.removeEventListener("pointermove", moveInvestigationPointer);
 }
 
 function saveInvestigationMoveSoon() {
-  clearTimeout(investigationMoveSaveTimer);
-  investigationMoveSaveTimer = setTimeout(() => saveState(), 450);
+  saveState();
 }
 
 function handleInvestigationKeydown(event) {
