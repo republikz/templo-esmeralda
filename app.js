@@ -1036,13 +1036,20 @@ function normalizeCampfire(campfire, users) {
 
 function normalizeInvestigationBoard(board, legacyNotes, userLookup) {
   const source = board && typeof board === "object" ? board : {};
+  const hasExistingBoard = board && typeof board === "object" && (
+    Object.prototype.hasOwnProperty.call(source, "notes")
+    || Object.prototype.hasOwnProperty.call(source, "links")
+    || Object.prototype.hasOwnProperty.call(source, "migratedFromLegionNotesAt")
+  );
   const notes = Array.isArray(source.notes)
     ? source.notes.map((note) => normalizeInvestigationNote(note, userLookup)).filter(Boolean)
     : [];
   const links = Array.isArray(source.links)
     ? source.links.map(normalizeInvestigationLink).filter(Boolean)
     : [];
-  if (!notes.length && legacyNotes) {
+  let migratedFromLegionNotesAt = Number(source.migratedFromLegionNotesAt) || 0;
+  if (!notes.length && legacyNotes && !hasExistingBoard) {
+    migratedFromLegionNotesAt = Date.now();
     String(legacyNotes)
       .split(/\n\s*\n/g)
       .map((text) => text.trim())
@@ -1066,6 +1073,7 @@ function normalizeInvestigationBoard(board, legacyNotes, userLookup) {
   return {
     width: Math.max(1200, Math.min(5000, Number(source.width) || 1800)),
     height: Math.max(900, Math.min(4000, Number(source.height) || 1250)),
+    migratedFromLegionNotesAt,
     notes,
     links: links.filter((link) => noteIds.has(link.fromNoteId) && noteIds.has(link.toNoteId) && link.fromNoteId !== link.toNoteId)
   };
@@ -4019,7 +4027,19 @@ function importData(event) {
     if (!raw) {
       return;
     }
-    state = normalizeState(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.notes) && Array.isArray(parsed.links)) {
+      const users = Array.isArray(state.users) ? state.users : [];
+      const userLookup = new Map(users.map((user) => [user.id, user]));
+      state.campfire = state.campfire && typeof state.campfire === "object" ? state.campfire : {};
+      state.campfire.investigationBoard = normalizeInvestigationBoard(parsed, "", userLookup);
+      saveState();
+      $("#importData").value = "";
+      render();
+      showToast("Quadro de investigação restaurado.");
+      return;
+    }
+    state = normalizeState(parsed);
     saveState();
     $("#importData").value = "";
     render();

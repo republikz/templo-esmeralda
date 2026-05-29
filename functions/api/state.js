@@ -362,6 +362,10 @@ function mergeInvestigationBoard(currentBoard, incomingBoard, tombstones) {
   return {
     width: Math.max(1200, Math.min(5000, Math.ceil(maxRight + 360))),
     height: Math.max(900, Math.min(4000, Math.ceil(maxBottom + 300))),
+    migratedFromLegionNotesAt: Math.max(
+      Number(currentBoard?.migratedFromLegionNotesAt) || 0,
+      Number(incomingBoard?.migratedFromLegionNotesAt) || 0
+    ),
     notes,
     links
   };
@@ -493,9 +497,9 @@ export async function onRequest({ request, env }) {
       const row = await readStateRow(env);
       const currentState = row?.state_json && typeof row.state_json === "object" ? row.state_json : {};
       const currentRevision = Math.max(Number(row?.revision) || 0, Number(currentState.revision) || 0);
-      const baseRevision = Number(incoming?._baseRevision) || Number(incoming?.revision) || 0;
       const hydrated = await hydrateStateImages(cleanIncomingState(incoming), env);
-      const merged = baseRevision < currentRevision
+      const hasCurrentState = currentState && typeof currentState === "object" && Object.keys(currentState).length > 0;
+      const merged = hasCurrentState
         ? mergeStates(currentState, { ...hydrated, _changedFields: incoming._changedFields })
         : hydrated;
       const repaired = ensureCanonicalUsers(merged);
