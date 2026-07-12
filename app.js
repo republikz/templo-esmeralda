@@ -748,6 +748,62 @@ function freshState() {
   };
 }
 
+function emptyState() {
+  const masterUserId = createId("user");
+  return {
+    version: 1,
+    currentDay: 1,
+    startingBalanceCopper: 0,
+    revision: 0,
+    updatedAt: Date.now(),
+    deletedRecords: [],
+    activeUserId: null,
+    users: [
+      {
+        id: masterUserId,
+        name: "Gabriel Vieira",
+        role: userRoles.admin,
+        pin: "310898",
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }
+    ],
+    rooms: [],
+    npcs: [],
+    financeSources: [],
+    ledger: [],
+    faithTransactions: [],
+    events: [],
+    autoProcessRecurring: false,
+    campfire: {
+      legionNotes: "",
+      investigationBoard: {
+        width: INVESTIGATION_BOARD_MIN_WIDTH,
+        height: INVESTIGATION_BOARD_MIN_HEIGHT,
+        notes: [],
+        links: []
+      },
+      heroes: []
+    },
+    journey: {
+      notificationBaselineAt: Date.now(),
+      reads: [],
+      entries: []
+    },
+    market: {
+      permanentCount: 14,
+      consumableCount: 10,
+      allowedRarities: ["Common", "Uncommon", "Rare"],
+      lastRestockDay: 0,
+      nonce: 0,
+      stock: {
+        permanent: [],
+        consumable: []
+      }
+    }
+  };
+}
+
 async function loadSeedState() {
   if (!isLocalDevelopmentHost()) {
     return null;
@@ -768,7 +824,7 @@ async function loadSeedState() {
 }
 
 async function loadSharedState() {
-  const fallback = loadLocalState();
+  const fallback = isLocalDevelopmentHost() ? loadLocalState() : null;
   const seed = await loadSeedState();
   try {
     const response = await fetch(STATE_API_URL, { cache: "no-store" });
@@ -796,7 +852,7 @@ async function loadSharedState() {
     return fallback;
   }
 
-  const fresh = freshState();
+  const fresh = isLocalDevelopmentHost() ? freshState() : emptyState();
   saveLocalState(fresh);
   return fresh;
 }
@@ -805,16 +861,16 @@ function loadLocalState() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) {
-      return freshState();
+      return null;
     }
     return normalizeState(JSON.parse(saved));
   } catch (error) {
-    return freshState();
+    return null;
   }
 }
 
 function normalizeState(value) {
-  const fallback = freshState();
+  const fallback = isLocalDevelopmentHost() ? freshState() : emptyState();
   const data = value && typeof value === "object" ? value : {};
   const normalizedUsers = Array.isArray(data.users) && data.users.length
     ? data.users.map(normalizeUser)
