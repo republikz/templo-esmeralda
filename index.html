@@ -376,8 +376,12 @@
               </div>
             </div>
             <form id="financeBalanceForm" class="inline-form">
-              <input id="financeBalanceInput" type="number" min="0" step="0.1" placeholder="gp">
-              <button class="button primary" type="submit">Salvar saldo</button>
+              <select id="financeBalanceAction" aria-label="Tipo de ajuste do saldo">
+                <option value="income">Adicionar ao saldo</option>
+                <option value="expense">Subtrair do saldo</option>
+              </select>
+              <input id="financeBalanceInput" type="number" min="0" step="0.1" placeholder="Valor em gp">
+              <button class="button primary" type="submit">Aplicar ajuste</button>
               <button class="button ghost" id="cancelFinanceBalance" type="button">Cancelar</button>
             </form>
           </section>
@@ -878,11 +882,22 @@
                 </div>
               </div>
               <form id="settingsForm" class="stacked-form">
+                <div class="setting-readout">
+                  <span>Saldo atual</span>
+                  <strong id="settingsCurrentBalance">0 gp</strong>
+                </div>
                 <label>
-                  Saldo atual em gp
-                  <input id="startingBalance" type="number" min="0" step="0.1">
+                  Operação
+                  <select id="settingsBalanceAction">
+                    <option value="income">Adicionar ao saldo</option>
+                    <option value="expense">Subtrair do saldo</option>
+                  </select>
                 </label>
-                <button class="button primary" type="submit">Salvar saldo</button>
+                <label>
+                  Valor em gp
+                  <input id="startingBalance" type="number" min="0" step="0.1" placeholder="Valor do ajuste">
+                </label>
+                <button class="button primary" type="submit">Aplicar ajuste</button>
               </form>
               <div class="button-row separated">
                 <button class="button subtle" id="exportData" type="button">Exportar dados</button>

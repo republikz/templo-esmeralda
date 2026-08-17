@@ -543,7 +543,32 @@ img {
 }
 
 .finance-balance-panel .inline-form {
+  grid-template-columns: minmax(180px, 0.9fr) minmax(140px, 0.7fr) auto auto;
   margin-top: 0;
+}
+
+.setting-readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.setting-readout span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.setting-readout strong {
+  color: var(--ink);
+  font-size: 1.25rem;
 }
 
 .button-row.separated {

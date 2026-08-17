@@ -2812,7 +2812,8 @@ function syncNpcFinanceSource(npc) {
 
 function renderFinance() {
   $("#financeBalance").textContent = formatCopper(getBalanceCopper());
-  $("#financeBalanceInput").value = copperToGpInput(state.startingBalanceCopper);
+  $("#financeBalanceInput").value = "";
+  $("#financeBalanceAction").value = "income";
   const due = getDueSources();
   const totals = getDueTotals(due);
   $("#financeIncomeDue").textContent = formatCopper(totals.income);
@@ -3895,17 +3896,46 @@ function renderSettings() {
     state.users = repairedUsers;
     saveState();
   }
-  $("#startingBalance").value = copperToGpInput(state.startingBalanceCopper);
+  $("#settingsCurrentBalance").textContent = formatCopper(getBalanceCopper());
+  $("#settingsBalanceAction").value = "income";
+  $("#startingBalance").value = "";
   renderUsers();
+}
+
+function applyBalanceAdjustment({ action, amountGp, label }) {
+  const amountCopper = gpToCopper(Number(amountGp) || 0);
+  const type = action === "expense" ? "expense" : "income";
+  if (amountCopper <= 0) {
+    showToast("Informe um valor em gp para ajustar o saldo.");
+    return false;
+  }
+  state.ledger.push({
+    id: createId("ledger"),
+    day: state.currentDay,
+    name: label || (type === "income" ? "Ajuste de saldo: acréscimo" : "Ajuste de saldo: retirada"),
+    type,
+    amountCopper,
+    sourceId: "",
+    note: "Ajuste manual do saldo atual da base.",
+    createdAt: Date.now()
+  });
+  return true;
 }
 
 function saveFinanceBalance(event) {
   event.preventDefault();
-  state.startingBalanceCopper = gpToCopper(Number($("#financeBalanceInput").value) || 0);
+  const ok = applyBalanceAdjustment({
+    action: $("#financeBalanceAction").value,
+    amountGp: $("#financeBalanceInput").value,
+    label: $("#financeBalanceAction").value === "expense" ? "Ajuste de saldo: retirada" : "Ajuste de saldo: acréscimo"
+  });
+  if (!ok) {
+    return;
+  }
   saveState();
   render();
   toggleFinanceBalanceEditor(false);
-  showToast("Saldo atual salvo.");
+  showToast("Saldo atual ajustado.");
 }
 
 function handleAccessSubmit(event) {
@@ -4064,10 +4094,17 @@ function saveSettings(event) {
     showToast("Somente o Mestre pode alterar os dados da campanha.");
     return;
   }
-  state.startingBalanceCopper = gpToCopper(Number($("#startingBalance").value) || 0);
+  const ok = applyBalanceAdjustment({
+    action: $("#settingsBalanceAction").value,
+    amountGp: $("#startingBalance").value,
+    label: $("#settingsBalanceAction").value === "expense" ? "Ajuste do Mestre: retirada" : "Ajuste do Mestre: acréscimo"
+  });
+  if (!ok) {
+    return;
+  }
   saveState();
   render();
-  showToast("Saldo inicial salvo.");
+  showToast("Saldo atual ajustado.");
 }
 
 function exportData() {
