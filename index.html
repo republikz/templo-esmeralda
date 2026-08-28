@@ -6,15 +6,15 @@
     <title>Templo Esmeralda | Base Pathfinder 2e</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Alegreya:wght@400;500;600;700;800&family=Marcellus+SC&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=26">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=34">
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegação principal">
         <div class="brand">
           <div class="brand-mark" aria-hidden="true"><img src="templo-esmeralda-icon.png?v=2" alt=""></div>
-          <div>
+          <div class="brand-copy">
             <p>Templo Esmeralda</p>
             <span>Casa de Minimus Legio</span>
           </div>
@@ -23,39 +23,39 @@
         <nav class="nav-list">
           <button class="nav-button active" type="button" data-view-target="dashboard">
             <span aria-hidden="true">⌂</span>
-            Início
+            <span class="nav-label">Início</span>
           </button>
           <button class="nav-button" type="button" data-view-target="rooms">
             <span aria-hidden="true">▣</span>
-            Salas
+            <span class="nav-label">Salas</span>
           </button>
           <button class="nav-button" type="button" data-view-target="npcs">
             <span aria-hidden="true">◉</span>
-            NPCs
+            <span class="nav-label">NPCs</span>
           </button>
           <button class="nav-button" type="button" data-view-target="finance">
             <span aria-hidden="true">¢</span>
-            Finanças
+            <span class="nav-label">Finanças</span>
           </button>
           <button class="nav-button" type="button" data-view-target="calendar">
             <span aria-hidden="true">🗓</span>
-            Calendário
+            <span class="nav-label">Calendário</span>
           </button>
           <button class="nav-button" type="button" data-view-target="campfire">
             <span aria-hidden="true">🔥</span>
-            Fogueira
+            <span class="nav-label">Fogueira</span>
           </button>
           <button class="nav-button" type="button" data-view-target="journey">
             <span aria-hidden="true">▤</span>
-            Jornada
+            <span class="nav-label">Jornada</span>
           </button>
           <button class="nav-button" type="button" data-view-target="market">
             <span aria-hidden="true">✦</span>
-            Mercado
+            <span class="nav-label">Mercado</span>
           </button>
           <button class="nav-button" type="button" data-view-target="settings" data-admin-only="true">
             <span aria-hidden="true">⚙</span>
-            Configurações
+            <span class="nav-label">Configurações</span>
           </button>
         </nav>
 
@@ -79,8 +79,13 @@
         </div>
       </aside>
 
+      <button class="sidebar-scrim" id="sidebarScrim" type="button" aria-label="Fechar navegação" tabindex="-1"></button>
+
       <main class="workspace">
         <header class="topbar">
+          <button class="mobile-nav-toggle" id="mobileNavToggle" type="button" aria-label="Abrir navegação" aria-expanded="false">
+            <span aria-hidden="true"></span>
+          </button>
           <div>
             <p class="eyebrow">Gerenciamento da Base</p>
             <h1 id="viewTitle">Início</h1>
@@ -100,7 +105,7 @@
           <section class="panel dashboard-hero-card" id="dashboardHeroPanel"></section>
           <section class="panel dashboard-faith-card" id="dashboardFaithPanel"></section>
 
-          <div class="dashboard-grid">
+          <div class="dashboard-orbit">
             <section class="panel dashboard-calendar-panel">
               <div class="section-header">
                 <div>
@@ -112,16 +117,18 @@
               <div class="calendar-mini" id="dashboardCalendarGrid"></div>
             </section>
 
-            <section class="panel">
-              <div class="section-header">
-                <div>
-                  <p class="eyebrow">Ciclo de 7 dias</p>
-                  <h2>Mercado atual</h2>
+            <aside class="dashboard-side-stack">
+              <section class="panel dashboard-market-panel">
+                <div class="section-header">
+                  <div>
+                    <p class="eyebrow">Vitrine da semana</p>
+                    <h2>Mercado Esmeralda</h2>
+                  </div>
+                  <button class="button subtle" id="refreshMarketDashboard" type="button">Renovar vitrine</button>
                 </div>
-                <button class="button subtle" id="refreshMarketDashboard" type="button">Gerar estoque</button>
-              </div>
-              <div class="compact-stock" id="dashboardMarketList"></div>
-            </section>
+                <div class="market-shelf" id="dashboardMarketList"></div>
+              </section>
+            </aside>
           </div>
 
           <section class="panel dashboard-journey-panel">
@@ -605,6 +612,16 @@
                   Nome do personagem
                   <input id="campfireCharacterName" maxlength="90" autocomplete="off" placeholder="Ex.: Iril Vantor">
                 </label>
+                <div class="form-row hero-profile-fields">
+                  <label>
+                    Classe
+                    <input id="campfireCharacterClass" maxlength="60" autocomplete="off" placeholder="Ex.: Oráculo">
+                  </label>
+                  <label>
+                    Nível
+                    <input id="campfireCharacterLevel" maxlength="20" autocomplete="off" placeholder="Ex.: 8">
+                  </label>
+                </div>
                 <label id="campfireHeroOwnerField">
                   Vincular a usuário
                   <select id="campfireHeroOwnerUserId"></select>
@@ -985,6 +1002,6 @@
       </section>
     </div>
 
-    <script src="app.js?v=26" defer></script>
+    <script src="app.js?v=32" defer></script>
   </body>
 </html>

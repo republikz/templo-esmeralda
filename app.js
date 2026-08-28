@@ -115,6 +115,7 @@ function isLocalDevelopmentHost() {
 let investigationFullscreen = false;
 let dashboardFaithExpanded = false;
 let faithUseConfirmOpen = false;
+let mobileNavigationOpen = false;
 let lastSyncedRevision = 0;
 let lastSyncedStateSnapshot = null;
 let lastSyncStartedAt = 0;
@@ -123,6 +124,8 @@ const renderCache = {
   calendarEntries: { key: "", value: [] },
   dueSources: { key: "", value: [] },
   combinedMarket: { key: "", value: [] },
+  dashboardHeroHtml: { key: "", value: "" },
+  dashboardFaithHtml: { key: "", value: "" },
   dashboardCalendarHtml: { key: "", value: "" },
   dashboardJourneyHtml: { key: "", value: "" },
   dashboardJourneyCommentsHtml: { key: "", value: "" },
@@ -285,6 +288,8 @@ function setActiveUser(userId) {
 function bindEvents() {
   const sidebarToggle = $("#sidebarToggle");
   if (sidebarToggle) sidebarToggle.addEventListener("click", toggleSidebar);
+  $("#mobileNavToggle")?.addEventListener("click", () => setMobileNavigation(!mobileNavigationOpen));
+  $("#sidebarScrim")?.addEventListener("click", () => setMobileNavigation(false));
   const logoutButton = $("#logoutButton");
   if (logoutButton) logoutButton.addEventListener("click", logout);
   const refreshRooms = debounce(renderRooms, 80);
@@ -383,6 +388,7 @@ function bindEvents() {
     if (generateMarketStock()) {
       saveState();
       render();
+      playMarketRestockAnimation();
       showToast("Mercado atualizado no painel.");
     }
   });
@@ -405,6 +411,7 @@ function bindEvents() {
   $("#authForm").addEventListener("submit", handleAccessSubmit);
   $("#dashboardCalendarGrid")?.addEventListener("click", handleDashboardAction);
   $("#dashboardFaithPanel")?.addEventListener("click", handleFaithAction);
+  $("#dashboardMarketList")?.addEventListener("click", handleDashboardAction);
   $("#dashboardJourneyList")?.addEventListener("click", handleDashboardAction);
   $("#dashboardJourneyCommentList")?.addEventListener("click", handleDashboardAction);
   $("#openJourneyDashboard")?.addEventListener("click", () => showView("journey"));
@@ -511,7 +518,7 @@ async function loadCatalog() {
     const rawCatalog = await response.json();
     catalog = rawCatalog
       .map(normalizeCatalogItem)
-      .filter((item) => item.level >= 1 && item.level <= 14 && item.priceCopper > 0);
+      .filter((item) => item.level >= 1 && item.level <= 15 && item.priceCopper > 0);
     catalogLoaded = true;
     notice.hidden = true;
     autoRestockIfDue();
@@ -1195,6 +1202,8 @@ function normalizeCampfireHero(hero, userLookup) {
     ownerUserId,
     ownerName: hero?.ownerName?.trim() || owner?.name || (ownerUserId ? "Jogador" : "Exemplo da mesa"),
     characterName: hero?.characterName?.trim() || "Personagem sem nome",
+    className: String(hero?.className || "").trim(),
+    level: String(hero?.level || "").trim(),
     image: hero?.image || "",
     updatedAt: Number(hero?.updatedAt) || Date.now(),
     goals: Array.isArray(hero?.goals) ? hero.goals.map(normalizeCampfireGoal) : []
@@ -1418,20 +1427,29 @@ function repairNpcFinanceSources(data) {
 }
 
 function normalizeStockEntry(item) {
+  const level = Number.parseInt(item.level, 10) || 0;
+  const normalCopper = toSafeCopper(item.normalCopper, 0);
+  const section = item.section === "consumable" ? "consumable" : "permanent";
+  const legacyPremiumLevel13 = section === "permanent" && level === 13 && item.stockType === "premium";
+  const adjustmentPercent = legacyPremiumLevel13
+    ? -10
+    : (Number.parseInt(item.adjustmentPercent, 10) || 0);
   return {
     stockId: item.stockId || createId("stock"),
     name: item.name || "Item",
-    level: Number.parseInt(item.level, 10) || 0,
+    level,
     rarity: item.rarity || "Common",
     category: item.category || "",
     subcategory: item.subcategory || "",
     trait: item.trait || "",
     url: item.url || "",
-    normalCopper: toSafeCopper(item.normalCopper, 0),
-    merchantCopper: toSafeCopper(item.merchantCopper, 0),
-    adjustmentPercent: Number.parseInt(item.adjustmentPercent, 10) || 0,
-    stockType: item.stockType === "premium" ? "premium" : "regular",
-    section: item.section === "consumable" ? "consumable" : "permanent"
+    normalCopper,
+    merchantCopper: legacyPremiumLevel13
+      ? roundToSilver(normalCopper * 0.9)
+      : toSafeCopper(item.merchantCopper, 0),
+    adjustmentPercent,
+    stockType: legacyPremiumLevel13 ? "regular" : (item.stockType === "premium" ? "premium" : "regular"),
+    section
   };
 }
 
@@ -1716,6 +1734,7 @@ async function syncStateFromServer() {
 
 function showView(view) {
   activeView = viewTitles[view] && canAccessView(view) ? view : "dashboard";
+  setMobileNavigation(false);
   if (activeView !== "npcs") {
     selectedNpcId = "";
     npcModalEditId = "";
@@ -1915,6 +1934,16 @@ function toggleSidebar() {
   }
 }
 
+function setMobileNavigation(open) {
+  mobileNavigationOpen = Boolean(open && window.matchMedia("(max-width: 860px)").matches);
+  document.body.classList.toggle("mobile-nav-open", mobileNavigationOpen);
+  const button = $("#mobileNavToggle");
+  if (button) {
+    button.setAttribute("aria-expanded", String(mobileNavigationOpen));
+    button.setAttribute("aria-label", mobileNavigationOpen ? "Fechar navegação" : "Abrir navegação");
+  }
+}
+
 function logout() {
   sessionUserId = null;
   state.activeUserId = null;
@@ -1959,6 +1988,7 @@ function renderDashboardCalendar() {
       const isToday = currentParts.dayOfMonth === day;
       const absoluteDay = getYearStart(state.currentDay) + currentMonth * DAYS_PER_MONTH + day;
       const classes = ["calendar-mini-day", "dashboard-calendar-day"];
+      classes.push(absoluteDay < state.currentDay ? "is-past" : absoluteDay > state.currentDay ? "is-future" : "is-present");
       if (isToday) {
         classes.push("today");
       }
@@ -1999,6 +2029,10 @@ function renderDashboardCalendar() {
     }
     if (button.dataset.action === "open-journey-entry") {
       openJourneyEntry(button.dataset.id);
+      return;
+    }
+    if (button.dataset.action === "open-market") {
+      showView("market");
     }
   }
 
@@ -3224,6 +3258,7 @@ function renderCalendarDayCell(dayOfMonth, dayEntries) {
   const isToday = absoluteDay === state.currentDay;
   const isSelected = absoluteDay === selectedCalendarDay;
   const classes = ["calendar-day-cell"];
+  classes.push(absoluteDay < state.currentDay ? "is-past" : absoluteDay > state.currentDay ? "is-future" : "is-present");
   if (isToday) classes.push("today");
   if (isSelected) classes.push("selected");
   if (dayEntries.length) classes.push("has-entries");
@@ -3666,24 +3701,24 @@ function renderMarketCard(item, section) {
   const rarityClass = `rarity-${String(item.rarity || "").toLowerCase()}`;
   const sectionClass = section === "consumable" ? "section-consumable" : "section-permanent";
   const sectionLabel = section === "consumable" ? "Consumível" : "Permanente";
-  const rarityChipClass = "";
+  const icon = getDashboardMarketIcon(item);
   return `
     <article class="market-card ${rarityClass} ${sectionClass}">
-      <header>
-        <div>
+      <header class="market-card-head">
+        <span class="market-card-icon icon-${icon}" aria-hidden="true"></span>
+        <div class="market-card-identity">
           <h3>${escapeHtml(item.name)}</h3>
-          <div class="market-meta">
+          <div class="market-card-facts">
             <span class="level-pill">Nível ${item.level}</span>
-            <span>${escapeHtml(item.rarity)}</span>
-            <span>${escapeHtml(item.category)}</span>
+            <span class="market-category">${escapeHtml(item.category)}</span>
           </div>
         </div>
-        <div class="chip-row compact">
-          <span class="chip ${rarityChipClass}">${escapeHtml(item.rarity)}</span>
+      </header>
+      <div class="market-card-tags" aria-label="Características do item">
+          <span class="chip market-rarity-chip">${escapeHtml(item.rarity)}</span>
           <span class="chip">${sectionLabel}</span>
           <span class="chip ${item.stockType === "premium" ? "expense" : "warn"}">${adjustmentLabel}</span>
-        </div>
-      </header>
+      </div>
       <div class="price-line">
         <span>Normal: ${formatCopper(item.normalCopper)}</span>
         <strong>${formatCopper(item.merchantCopper)}</strong>
@@ -3707,7 +3742,7 @@ function generateMarketStock(options = {}) {
 
   const rng = createSeededRandom(`${state.currentDay}|${state.market.nonce}|${state.market.permanentCount}|${state.market.consumableCount}`);
   const allowed = state.market.allowedRarities.length ? state.market.allowedRarities : ["Common", "Uncommon", "Rare"];
-  const permanentPool = catalog.filter((item) => !isConsumableCatalogItem(item) && allowed.includes(item.rarity));
+  const permanentPool = catalog.filter((item) => !isConsumableCatalogItem(item) && allowed.includes(item.rarity) && item.level <= 15);
   const consumablePool = catalog.filter((item) => isConsumableCatalogItem(item) && allowed.includes(item.rarity) && item.level <= 12);
   const permanentItems = pickVariedItems(permanentPool, state.market.permanentCount, allowed, rng)
     .map((item) => makeStockEntry(item, "permanent", rng));
@@ -3825,7 +3860,7 @@ function pickWeightedItem(pool, rng) {
     return null;
   }
   const scored = pool.map((item) => {
-    const levelWeight = item.level >= 10 ? 2 : item.level >= 8 ? 1.4 : 1;
+    const levelWeight = item.level >= 14 ? 2.65 : item.level >= 13 ? 2.25 : item.level >= 10 ? 2 : item.level >= 8 ? 1.4 : 1;
     const rarityWeight = item.rarity === "Rare" ? 1.25 : item.rarity === "Uncommon" ? 1.15 : 1;
     return { item, weight: levelWeight * rarityWeight };
   });
@@ -3841,7 +3876,7 @@ function pickWeightedItem(pool, rng) {
 }
 
 function makeStockEntry(item, stockType, rng) {
-  const isHighLevelPermanent = stockType === "permanent" && item.level >= 13;
+  const isHighLevelPermanent = stockType === "permanent" && item.level >= 14;
   const adjustmentPercent = isHighLevelPermanent
     ? 10
     : -(10 + Math.floor(rng() * 11));
@@ -4451,10 +4486,12 @@ function renderDashboard() {
   renderDashboardFaith();
   renderDashboardCalendar();
   renderDashboardJourney();
-  const totalItems = getMarketStockTotal();
-  const nextMarketDay = getNextMarketDay();
-  const marketHtml = [`<article class="ledger-item market-overview-card"><span class="eyebrow">Itens no mercado</span><strong>${totalItems}</strong></article>`,
-    `<article class="ledger-item market-overview-card"><span class="eyebrow">Próxima atualização</span><strong>${formatCalendarDate(nextMarketDay)}</strong></article>`].join("");
+  const marketStock = getCombinedMarketStock();
+  const marketKey = getCacheKey(state.revision, marketStock.length, state.market.lastRestockDay);
+  const marketHtml = getCachedValue(renderCache.dashboardMarketHtml, marketKey, () => marketStock.length
+    ? `<div class="market-shelf-grid">${marketStock.slice(0, 6).map(renderDashboardMarketItem).join("")}</div>
+       <footer><span>${marketStock.length} item${marketStock.length === 1 ? "" : "s"} na vitrine</span><strong>Renova em ${formatCalendarDate(getNextMarketDay())}</strong></footer>`
+    : renderEmpty("Portas fechadas", "O Mercado Esmeralda ainda não recebeu seu estoque desta semana."));
   setHtmlIfChanged($("#dashboardMarketList"), marketHtml);
   const recent = [...state.ledger].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
   const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(state.revision, recent.length, "dashboard-ledger"), () => recent.length
@@ -4467,6 +4504,7 @@ function renderDashboardHero() {
   const panel = $("#dashboardHeroPanel");
   if (!panel) return;
   const hero = getCampfireHeroForUser(getActiveUserId());
+  panel.classList.toggle("is-empty", !hero);
   if (!hero) {
     setHtmlIfChanged(panel, renderEmpty("Seu herói", "Nenhum personagem está vinculado a este perfil."));
     return;
@@ -4479,8 +4517,54 @@ function renderDashboardHero() {
       : `<p>Sem objetivo visível.</p>`;
     return `<article class="dash-goal goal-${category}"><strong>${escapeHtml(campfireGoalCategories[category])}</strong>${goalList}</article>`;
   }).join("");
-  const html = `<div class="dashboard-hero-copy"><p class="eyebrow">Seu herói</p><h2>${escapeHtml(hero.characterName)}</h2></div><div class="dashboard-hero-content"><div class="dash-hero-avatar ${hero.image ? "has-image" : ""}">${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}</div><div class="dash-goal-grid">${goalsHtml}</div></div>`;
+  const heroKey = getCacheKey(state.revision, hero.id, hero.updatedAt, visibleGoals.length);
+  const html = getCachedValue(renderCache.dashboardHeroHtml, heroKey, () => `
+    <div class="dashboard-hero-portrait ${hero.image ? "has-image" : ""}">
+      ${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" width="360" height="480" loading="eager" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}
+    </div>
+    <div class="dashboard-hero-sheet">
+      <header class="dashboard-hero-identity">
+        <div class="dashboard-hero-identity-copy">
+          <p class="eyebrow">Seu herói</p>
+          <h2>${escapeHtml(hero.characterName)}</h2>
+          ${(hero.className || hero.level) ? `<div class="hero-identity-meta" aria-label="Detalhes do personagem">
+            ${hero.className ? `<span>${escapeHtml(hero.className)}</span>` : ""}
+            ${(hero.className && hero.level) ? `<i aria-hidden="true">&middot;</i>` : ""}
+            ${hero.level ? `<span>${escapeHtml(hero.level)}</span>` : ""}
+          </div>` : ""}
+        </div>
+      </header>
+    </div>
+    <div class="dash-goal-grid dashboard-hero-goals">${goalsHtml}</div>`);
   setHtmlIfChanged(panel, html);
+}
+
+function renderDashboardMarketItem(item) {
+  const icon = getDashboardMarketIcon(item);
+  const rarity = String(item.rarity || "Common").toLowerCase();
+  return `<button class="market-shelf-item rarity-${escapeAttr(rarity)}" type="button" data-action="open-market" title="${escapeAttr(item.name)}">
+    <span class="market-shelf-icon icon-${icon}" aria-hidden="true"></span>
+    <span><strong>${escapeHtml(item.name)}</strong><small>Nível ${item.level} · ${escapeHtml(item.rarity)}</small></span>
+  </button>`;
+}
+
+function playMarketRestockAnimation() {
+  const panel = document.querySelector(".dashboard-market-panel");
+  if (!panel || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  panel.classList.remove("is-restocking");
+  window.requestAnimationFrame(() => {
+    panel.classList.add("is-restocking");
+    window.setTimeout(() => panel.classList.remove("is-restocking"), 720);
+  });
+}
+
+function getDashboardMarketIcon(item) {
+  const text = `${item.category || ""} ${item.subcategory || ""} ${item.trait || ""}`.toLowerCase();
+  if (item.section === "consumable" || /elixir|potion|alchemical|bomb|consumable/.test(text)) return "potion";
+  if (/weapon|sword|bow|staff|wand/.test(text)) return "weapon";
+  if (/armor|shield/.test(text)) return "armor";
+  if (/magic|spell|arcane|divine|occult|primal/.test(text)) return "arcane";
+  return "relic";
 }
 
 function renderDashboardFaith() {
@@ -4506,6 +4590,7 @@ function renderDashboardFaith() {
     })
     .join("");
   const canUse = Boolean(activeUser && points > 0);
+  const faithKey = getCacheKey(state.revision, activeUser?.id || "", points, dashboardFaithExpanded, faithUseConfirmOpen);
   const confirmHtml = faithUseConfirmOpen
     ? `<div class="faith-confirm" role="alert">
         <strong>Entregar este pedido ao divino?</strong>
@@ -4516,7 +4601,7 @@ function renderDashboardFaith() {
         </div>
       </div>`
     : "";
-  const html = `
+  const html = getCachedValue(renderCache.dashboardFaithHtml, faithKey, () => `
     <button class="faith-compact" type="button" data-action="toggle-faith-panel" aria-expanded="${dashboardFaithExpanded ? "true" : "false"}">
       <span>Pontos de Fé</span>
       <strong>${points}</strong>
@@ -4540,7 +4625,7 @@ function renderDashboardFaith() {
         <h3>Resultado do pedido</h3>
         <div>${outcomes}</div>
       </section>
-    </div>`;
+    </div>`);
   setHtmlIfChanged(panel, html);
 }
 
@@ -4624,14 +4709,18 @@ function renderDashboardJourneyCard(entry, options = {}) {
     : "";
   return `
     <button class="dashboard-journey-card ${unreadCount ? "has-unread" : ""}" type="button" data-action="open-journey-entry" data-id="${escapeAttr(entry.id)}">
-      ${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}
-      <span>
-        <strong>${escapeHtml(entry.title)}</strong>
-        <small>Nível ${escapeHtml(entry.level)}</small>
-      </span>
+      <time datetime="${escapeAttr(new Date(Number(entry.createdAt) || Date.now()).toISOString())}">${formatJournalDate(entry.createdAt)}</time>
+      <span class="dashboard-journey-memory">${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}</span>
+      <span class="dashboard-journey-copy"><strong>${escapeHtml(entry.title)}</strong><small>Nível ${escapeHtml(entry.level)}</small><p>${escapeHtml(String(entry.description || "Sem descrição.").slice(0, 150))}</p></span>
       ${unreadBadge}
     </button>
   `;
+}
+
+function formatJournalDate(timestamp) {
+  const date = new Date(Number(timestamp) || Date.now());
+  if (Number.isNaN(date.getTime())) return "Sem data";
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(date).replace(".", "");
 }
 
 function openJourneyEntry(id) {
@@ -5428,6 +5517,8 @@ function renderCampfireHeroCard(hero) {
           <h3>${escapeHtml(hero.characterName)}</h3>
           <div class="chip-row">
             ${statusLabel ? `<span class="chip income">${escapeHtml(statusLabel)}</span>` : ""}
+            ${hero.className ? `<span class="chip">${escapeHtml(hero.className)}</span>` : ""}
+            ${hero.level ? `<span class="chip">Nível ${escapeHtml(hero.level)}</span>` : ""}
             <span class="chip">${escapeHtml(ownerLabel)}</span>
             ${canSeeSecrets && secretCount ? `<span class="chip warn">${secretCount} secreto${secretCount === 1 ? "" : "s"}</span>` : ""}
           </div>
@@ -6142,6 +6233,8 @@ function loadCampfireHero(heroId) {
   }
   $("#campfireHeroId").value = hero.id;
   $("#campfireCharacterName").value = hero.characterName;
+  $("#campfireCharacterClass").value = hero.className || "";
+  $("#campfireCharacterLevel").value = hero.level || "";
   $("#campfireHeroImage").value = hero.image || "";
   const ownerSelect = $("#campfireHeroOwnerUserId");
   if (ownerSelect) {
@@ -6181,6 +6274,8 @@ function saveCampfireHero(event) {
       ? (getUserById($("#campfireHeroOwnerUserId").value || "")?.name || currentHero?.ownerName || "Exemplo da mesa")
       : (currentHero?.ownerName || getActiveUser().name),
     characterName: name,
+    className: $("#campfireCharacterClass").value.trim(),
+    level: $("#campfireCharacterLevel").value.trim(),
     image: $("#campfireHeroImage").value || "",
     goals: currentHero?.goals || [],
     updatedAt: Date.now()
@@ -6201,6 +6296,8 @@ function clearCampfireHeroForm() {
   const ownHero = isAdmin() ? null : getCampfireHeroForUser(getActiveUserId());
   $("#campfireHeroId").value = ownHero?.id || "";
   $("#campfireCharacterName").value = ownHero?.characterName || "";
+  $("#campfireCharacterClass").value = ownHero?.className || "";
+  $("#campfireCharacterLevel").value = ownHero?.level || "";
   $("#campfireHeroImage").value = ownHero?.image || "";
   const ownerSelect = $("#campfireHeroOwnerUserId");
   if (ownerSelect) ownerSelect.value = ownHero?.ownerUserId || "";
