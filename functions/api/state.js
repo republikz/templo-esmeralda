@@ -691,18 +691,27 @@ export async function onRequest({ request, env }) {
     if (!actor) return errorResponse("Autenticação necessária.", 401);
 
     const currentRevision = Math.max(Number(row.revision) || 0, Number(currentState.revision) || 0);
+    let effectiveRevision = currentRevision;
     if (migrated.changed) {
-      currentState.revision = currentRevision + 1;
+      effectiveRevision = currentRevision + 1;
+      currentState.revision = effectiveRevision;
       currentState.updatedAt = Date.now();
       await writeStateRow(env, currentState);
     }
 
     if (request.method === "GET") {
-      return jsonResponse(JSON.stringify(sanitizeStateForClient(currentState)), { status: 200 });
+      const etag = `\"state-${effectiveRevision}\"`;
+      if (request.headers.get("If-None-Match") === etag) {
+        return new Response(null, { status: 304, headers: { "Cache-Control": "no-store", ETag: etag } });
+      }
+      return jsonResponse(JSON.stringify(sanitizeStateForClient(currentState)), {
+        status: 200,
+        headers: { ETag: etag, "X-State-Revision": String(effectiveRevision) }
+      });
     }
 
     const baseRevision = Math.max(0, Number.parseInt(request.headers.get("X-Base-Revision") || "0", 10) || 0);
-    const rebased = baseRevision > 0 && baseRevision < currentRevision;
+    const rebased = baseRevision > 0 && baseRevision < effectiveRevision;
     const incoming = await request.json();
     const deltaIncoming = applyIncomingRecordDelta(currentState, incoming);
     const authorizedIncoming = actor.role === "admin"
@@ -712,13 +721,13 @@ export async function onRequest({ request, env }) {
     const hydrated = await hydrateStateImages(cleanIncomingState(stampedIncoming), env);
     const merged = mergeStates(currentState, { ...hydrated, _changedFields: incoming._changedFields });
     const finalState = cleanIncomingState(preserveServerUsers(currentState, merged));
-    finalState.revision = Math.max(currentRevision, Number(currentState.revision) || 0) + 1;
+    finalState.revision = Math.max(effectiveRevision, Number(currentState.revision) || 0) + 1;
     finalState.updatedAt = Date.now();
     finalState.deletedRecords = Array.isArray(finalState.deletedRecords) ? finalState.deletedRecords : [];
     await writeStateRow(env, finalState);
     return jsonResponse(JSON.stringify(sanitizeStateForClient(finalState)), {
       status: 200,
-      headers: { "X-State-Rebased": rebased ? "1" : "0", "X-State-Revision": String(finalState.revision) }
+      headers: { "X-State-Rebased": rebased ? "1" : "0", "X-State-Revision": String(finalState.revision), ETag: `\"state-${finalState.revision}\"` }
     });
   } catch (error) {
     return errorResponse(error?.message || "Erro inesperado ao processar o estado.", 500);

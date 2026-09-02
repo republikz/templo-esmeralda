@@ -4,6 +4,8 @@ const STORAGE_KEY = "pf2e-base-manager-v1";
 const SESSION_KEY = "pf2e-base-manager-session-v1";
 const STATE_API_URL = "/api/state";
 const SEED_STATE_URL = "./campaign-state.json";
+const CATALOG_URL = document.querySelector('meta[name="catalog-url"]')?.content || "table-data.json";
+const CATALOG_WORKER_URL = document.querySelector('meta[name="catalog-worker-url"]')?.content || "catalog-worker.js";
 const AON_BASE_URL = "https://2e.aonprd.com";
 const CALENDAR_MONTHS = ["Verão", "Outono", "Caos", "Inverno", "Primavera"];
 const DAYS_PER_MONTH = 72;
@@ -73,6 +75,7 @@ const INVESTIGATION_BOARD_MARGIN_Y = 300;
 let activeView = "dashboard";
 let catalog = [];
 let catalogLoaded = false;
+let catalogLoadPromise = null;
 let state = freshState();
 let sessionUserId = null;
 let sessionToken = null;
@@ -97,6 +100,7 @@ let investigationConnectFromId = "";
 let investigationDragState = null;
 let investigationSuppressClick = false;
 let pendingInvestigationDeleteId = "";
+let investigationDragFrame = 0;
 
 function isLocalDevelopmentHost() {
   const host = window.location.hostname;
@@ -201,7 +205,9 @@ async function init() {
   applyAuthState();
   render();
   startStateSync();
-  loadCatalog();
+  if (activeView === "market") {
+    void ensureCatalog();
+  }
 }
 
 function getActiveUser() {
@@ -358,23 +364,23 @@ function bindEvents() {
   $("#ledgerForm").addEventListener("submit", saveLedgerEntry);
   $("#ledgerTable").addEventListener("click", handleLedgerAction);
 
-  $("#generateMarket").addEventListener("click", () => {
-    if (generateMarketStock()) {
+  $("#generateMarket").addEventListener("click", async () => {
+    if (await ensureCatalog() && generateMarketStock()) {
       saveState();
       render();
       showToast("Estoque dos mercadores atualizado.");
     }
   });
-  $("#refreshMarketDashboard").addEventListener("click", () => {
-    if (generateMarketStock()) {
+  $("#refreshMarketDashboard").addEventListener("click", async () => {
+    if (await ensureCatalog() && generateMarketStock()) {
       saveState();
       render();
       playMarketRestockAnimation();
       showToast("Mercado atualizado no painel.");
     }
   });
-  $("#rerollMarket").addEventListener("click", () => {
-    if (generateMarketStock({ reroll: true })) {
+  $("#rerollMarket").addEventListener("click", async () => {
+    if (await ensureCatalog() && generateMarketStock({ reroll: true })) {
       saveState();
       render();
       showToast("Nova variação de estoque gerada.");
@@ -490,27 +496,68 @@ function toggleComposer(name, forceOpen, options = {}) {
 }
 
 async function loadCatalog() {
-  const notice = $("#catalogNotice");
-  try {
-    const response = await fetch("table-data.json", { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const rawCatalog = await response.json();
-    catalog = rawCatalog
-      .map(normalizeCatalogItem)
-      .filter((item) => item.level >= 1 && item.level <= 15 && item.priceCopper > 0);
-    catalogLoaded = true;
-    notice.hidden = true;
-    autoRestockIfDue();
-    saveState();
-    render();
-  } catch (error) {
-    catalogLoaded = false;
-    notice.hidden = false;
-    notice.textContent = "Catálogo de itens não encontrado. Coloque table-data.json junto ao index.html e abra pelo servidor local.";
-    renderMarket();
+  if (catalogLoadPromise) {
+    return catalogLoadPromise;
   }
+  const notice = $("#catalogNotice");
+  catalogLoadPromise = (async () => {
+    try {
+      catalog = await loadCatalogInWorker();
+      catalogLoaded = true;
+      if (notice) notice.hidden = true;
+      autoRestockIfDue();
+      if (activeView === "market") renderMarket();
+      return true;
+    } catch (error) {
+      catalogLoaded = false;
+      catalogLoadPromise = null;
+      if (notice) {
+        notice.hidden = false;
+        notice.textContent = "Catálogo de itens não encontrado. Coloque table-data.json junto ao index.html e abra pelo servidor local.";
+      }
+      if (activeView === "market") renderMarket();
+      return false;
+    }
+  })();
+  return catalogLoadPromise;
+}
+
+function loadCatalogInWorker() {
+  if (!window.Worker) {
+    return loadCatalogOnMainThread();
+  }
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(CATALOG_WORKER_URL);
+    const finish = () => worker.terminate();
+    worker.addEventListener("message", (event) => {
+      finish();
+      if (event.data?.ok && Array.isArray(event.data.items)) {
+        resolve(event.data.items);
+      } else {
+        reject(new Error(event.data?.error || "Falha ao preparar o catálogo."));
+      }
+    }, { once: true });
+    worker.addEventListener("error", () => {
+      finish();
+      loadCatalogOnMainThread().then(resolve, reject);
+    }, { once: true });
+    worker.postMessage({ url: CATALOG_URL, aonBaseUrl: AON_BASE_URL });
+  });
+}
+
+async function loadCatalogOnMainThread() {
+  const response = await fetch(CATALOG_URL, { cache: "force-cache" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  const rawCatalog = await response.json();
+  return rawCatalog
+    .map(normalizeCatalogItem)
+    .filter((item) => item.level >= 1 && item.level <= 15 && item.priceCopper > 0);
+}
+
+function ensureCatalog() {
+  return catalogLoaded ? Promise.resolve(true) : loadCatalog();
 }
 
 function freshState() {
@@ -1522,15 +1569,76 @@ let saveInFlight = false;
 let pendingPayload = null;
 let lastSaveFailed = false;
 
+function pickChangedRecords(records, ids) {
+  const idSet = new Set(Array.isArray(ids) ? ids : []);
+  return (Array.isArray(records) ? records : []).filter((record) => idSet.has(record?.id));
+}
+
+function getChangedDeletedRecords(records) {
+  const baseline = new Map((Array.isArray(lastSyncedStateSnapshot?.deletedRecords) ? lastSyncedStateSnapshot.deletedRecords : [])
+    .map((record) => [`${record?.type || ""}:${record?.id || ""}`, Number(record?.deletedAt) || 0]));
+  return (Array.isArray(records) ? records : []).filter((record) => (
+    (Number(record?.deletedAt) || 0) > (baseline.get(`${record?.type || ""}:${record?.id || ""}`) || 0)
+  ));
+}
+
+function buildIncrementalSavePayload(nextState, changedFields, changedRecords) {
+  const payload = {
+    version: nextState.version,
+    revision: nextState.revision,
+    updatedAt: nextState.updatedAt,
+    deletedRecords: getChangedDeletedRecords(nextState.deletedRecords),
+    _changedFields: changedFields,
+    _changedRecords: changedRecords
+  };
+  changedFields.forEach((field) => {
+    if (field === "campfire.legionNotes") {
+      payload.campfire = { ...(payload.campfire || {}), legionNotes: nextState.campfire?.legionNotes || "" };
+    } else {
+      payload[field] = nextState[field];
+    }
+  });
+  payload.rooms = pickChangedRecords(nextState.rooms, changedRecords.rooms);
+  payload.npcs = pickChangedRecords(nextState.npcs, changedRecords.npcs);
+  payload.financeSources = pickChangedRecords(nextState.financeSources, changedRecords.financeSources);
+  payload.ledger = pickChangedRecords(nextState.ledger, changedRecords.ledger);
+  payload.faithTransactions = pickChangedRecords(nextState.faithTransactions, changedRecords.faithTransactions);
+  payload.events = pickChangedRecords(nextState.events, changedRecords.events);
+  payload.campfire = {
+    ...(payload.campfire || {}),
+    heroes: pickChangedRecords(nextState.campfire?.heroes, changedRecords.campfireHeroes),
+    investigationBoard: {
+      notes: pickChangedRecords(nextState.campfire?.investigationBoard?.notes, changedRecords.investigationNotes),
+      links: pickChangedRecords(nextState.campfire?.investigationBoard?.links, changedRecords.investigationLinks)
+    }
+  };
+  const journeyEntries = pickChangedRecords(nextState.journey?.entries, changedRecords.journeyEntryContent || changedRecords.journeyEntries)
+    .map((entry) => ({
+      ...entry,
+      comments: pickChangedRecords(entry.comments, changedRecords.journeyComments?.[entry.id])
+    }));
+  const journeyCommentEntryIds = Object.keys(changedRecords.journeyComments || {});
+  journeyCommentEntryIds.forEach((entryId) => {
+    if (journeyEntries.some((entry) => entry.id === entryId)) return;
+    const entry = (nextState.journey?.entries || []).find((candidate) => candidate.id === entryId);
+    if (entry) {
+      journeyEntries.push({ ...entry, comments: pickChangedRecords(entry.comments, changedRecords.journeyComments?.[entryId]) });
+    }
+  });
+  payload.journey = {
+    entries: journeyEntries,
+    reads: pickChangedRecords(nextState.journey?.reads, changedRecords.journeyReads)
+  };
+  return payload;
+}
+
 function saveState(nextState = state, options = {}) {
   nextState.revision = (Number(nextState.revision) || 0) + 1;
   nextState.updatedAt = Date.now();
-  const payloadState = { ...nextState };
-  payloadState.deletedRecords = Array.isArray(payloadState.deletedRecords) ? payloadState.deletedRecords : [];
-  payloadState._changedFields = getChangedFieldsForSave(payloadState);
-  payloadState._changedRecords = getChangedRecordsForSave(payloadState);
-  delete payloadState.activeUserId;
-  saveLocalState(getSavableStateSnapshot(payloadState));
+  const changedFields = getChangedFieldsForSave(nextState);
+  const changedRecords = getChangedRecordsForSave(nextState);
+  const payloadState = buildIncrementalSavePayload(nextState, changedFields, changedRecords);
+  saveLocalState(getSavableStateSnapshot(nextState));
   pendingPayload = JSON.stringify(payloadState);
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushStateSave, options.immediate ? 0 : 350);
@@ -1739,11 +1847,18 @@ async function syncStateFromServer() {
   lastSyncStartedAt = now;
   syncInFlight = true;
   try {
-    const response = await fetch(STATE_API_URL, { cache: "no-store", headers: authHeaders() });
+    const revision = Math.max(0, Number(lastSyncedRevision) || 0);
+    const response = await fetch(STATE_API_URL, {
+      cache: "no-store",
+      headers: authHeaders(revision ? { "If-None-Match": `\"state-${revision}\"` } : {})
+    });
     if (response.status === 401) {
       clearSession();
       applyAuthState();
       render();
+      return;
+    }
+    if (response.status === 304) {
       return;
     }
     if (!response.ok) {
@@ -1777,6 +1892,9 @@ async function syncStateFromServer() {
 
 function showView(view) {
   activeView = viewTitles[view] && canAccessView(view) ? view : "dashboard";
+  if (activeView === "market") {
+    void ensureCatalog();
+  }
   setMobileNavigation(false);
   if (activeView !== "npcs") {
     selectedNpcId = "";
@@ -1864,7 +1982,6 @@ function render() {
       break;
     case "settings":
       renderSettings();
-      renderUsers();
       break;
     default:
       renderDashboard();
@@ -3622,7 +3739,7 @@ function getBalanceCopper() {
   }, state.startingBalanceCopper);
 }
 
-function saveMarketSettings(event) {
+async function saveMarketSettings(event) {
   event.preventDefault();
   if (!isAdmin()) {
     showToast("Somente o Mestre pode ajustar o mercado.");
@@ -3633,6 +3750,10 @@ function saveMarketSettings(event) {
   state.market.consumableCount = clamp(Number.parseInt($("#consumableCount").value, 10) || 10, 4, 60);
   state.market.allowedRarities = checkedRarities.length ? checkedRarities : ["Common", "Uncommon", "Rare"];
   state.market.stock = { permanent: [], consumable: [] };
+  if (!await ensureCatalog()) {
+    showToast("O catálogo não pôde ser carregado. Tente novamente.");
+    return;
+  }
   generateMarketStock();
   saveState();
   render();
@@ -6259,14 +6380,40 @@ function moveInvestigationPointer(event) {
   }
   note.x = clamp(investigationDragState.noteX + dx, 0, INVESTIGATION_BOARD_MAX_WIDTH - noteElement.offsetWidth - 24);
   note.y = clamp(investigationDragState.noteY + dy, 0, INVESTIGATION_BOARD_MAX_HEIGHT - noteElement.offsetHeight - 24);
-  noteElement.style.left = `${Math.round(note.x)}px`;
-  noteElement.style.top = `${Math.round(note.y)}px`;
-  updateInvestigationLinkPositions(note.id);
+  investigationDragState.nextX = note.x;
+  investigationDragState.nextY = note.y;
+  if (investigationDragFrame) {
+    return;
+  }
+  investigationDragFrame = requestAnimationFrame(() => {
+    investigationDragFrame = 0;
+    const drag = investigationDragState;
+    if (!drag) {
+      return;
+    }
+    const activeNote = $(`.investigation-note[data-note-id="${cssEscape(drag.noteId)}"]`);
+    if (!activeNote) {
+      return;
+    }
+    activeNote.style.left = `${Math.round(drag.nextX)}px`;
+    activeNote.style.top = `${Math.round(drag.nextY)}px`;
+    updateInvestigationLinkPositions(drag.noteId);
+  });
 }
 
 function endInvestigationPointer() {
   if (!investigationDragState) {
     return;
+  }
+  if (investigationDragFrame) {
+    cancelAnimationFrame(investigationDragFrame);
+    investigationDragFrame = 0;
+    const pendingNote = $(`.investigation-note[data-note-id="${cssEscape(investigationDragState.noteId)}"]`);
+    if (pendingNote) {
+      pendingNote.style.left = `${Math.round(investigationDragState.nextX ?? investigationDragState.noteX)}px`;
+      pendingNote.style.top = `${Math.round(investigationDragState.nextY ?? investigationDragState.noteY)}px`;
+      updateInvestigationLinkPositions(investigationDragState.noteId);
+    }
   }
   const noteElement = $(`.investigation-note[data-note-id="${cssEscape(investigationDragState.noteId)}"]`);
   noteElement?.classList.remove("dragging");
