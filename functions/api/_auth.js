@@ -1,6 +1,9 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const PIN_ITERATIONS = 310000;
+// Cloudflare Workers currently limits Web Crypto PBKDF2 to 100,000 iterations.
+// Keeping this at the supported ceiling preserves a strong derivation without
+// making every login fail before credential migration can complete.
+const PIN_ITERATIONS = 100000;
 const TOKEN_TTL_SECONDS = 60 * 60 * 8;
 
 function base64UrlEncode(value) {
@@ -31,15 +34,17 @@ export function normalizeAccessName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("pt-BR");
 }
 
-export async function hashPin(pin, salt = crypto.getRandomValues(new Uint8Array(16))) {
+export async function hashPin(pin, salt = crypto.getRandomValues(new Uint8Array(16)), iterations = PIN_ITERATIONS) {
+  const safeIterations = Math.min(Math.max(1, Number(iterations) || PIN_ITERATIONS), PIN_ITERATIONS);
   const key = await crypto.subtle.importKey("raw", encoder.encode(normalizeSecret(pin)), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: PIN_ITERATIONS }, key, 256);
-  return { hash: base64UrlEncode(new Uint8Array(bits)), salt: base64UrlEncode(salt), iterations: PIN_ITERATIONS };
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: safeIterations }, key, 256);
+  return { hash: base64UrlEncode(new Uint8Array(bits)), salt: base64UrlEncode(salt), iterations: safeIterations };
 }
 
 export async function verifyPin(pin, user) {
   if (!user?.pinHash || !user?.pinSalt) return false;
-  const derived = await hashPin(pin, base64UrlDecode(user.pinSalt));
+  const storedIterations = Math.min(Math.max(1, Number(user.pinIterations) || PIN_ITERATIONS), PIN_ITERATIONS);
+  const derived = await hashPin(pin, base64UrlDecode(user.pinSalt), storedIterations);
   return timingSafeEqual(encoder.encode(derived.hash), encoder.encode(String(user.pinHash)));
 }
 
