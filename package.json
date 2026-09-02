@@ -1,0 +1,10 @@
+{
+  "name": "templo-esmeralda",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node --check app.js && node --check worker.js && node --check functions/api/state.js && node --check functions/api/health.js && node --check functions/api/_auth.js && node --check functions/api/auth/login.js && node --check functions/api/auth/session.js && node --check functions/api/auth/users.js",
+    "audit:public": "node scripts/audit-public.mjs"
+  }
+}

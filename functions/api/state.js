@@ -1,21 +1,12 @@
-const DEFAULT_TABLE = "campaign_state";
-const DEFAULT_BUCKET = "campaign-assets";
-const DEFAULT_ROW_ID = "main";
+import { getBearerToken, migrateCredentials, sanitizeStateForClient, verifySessionToken } from "./_auth.js";
+import { getConfig, readStateRow, writeStateRow } from "./_store.js";
+
 const INVESTIGATION_BOARD_MIN_WIDTH = 1200;
 const INVESTIGATION_BOARD_MIN_HEIGHT = 900;
 const INVESTIGATION_BOARD_MAX_WIDTH = 5000;
 const INVESTIGATION_BOARD_MAX_HEIGHT = 4000;
 const INVESTIGATION_BOARD_MARGIN_X = 360;
 const INVESTIGATION_BOARD_MARGIN_Y = 300;
-
-function getConfig(env) {
-  const supabaseUrl = String(env.SUPABASE_URL || "").replace(/\/+$/, "");
-  const serviceKey = String(env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-  const table = String(env.SUPABASE_STATE_TABLE || DEFAULT_TABLE).trim() || DEFAULT_TABLE;
-  const bucket = String(env.SUPABASE_STORAGE_BUCKET || DEFAULT_BUCKET).trim() || DEFAULT_BUCKET;
-  const rowId = String(env.SUPABASE_STATE_ROW_ID || DEFAULT_ROW_ID).trim() || DEFAULT_ROW_ID;
-  return { supabaseUrl, serviceKey, table, bucket, rowId };
-}
 
 function jsonResponse(body, init = {}) {
   return new Response(body, {
@@ -181,82 +172,6 @@ async function hydrateStateImages(state, env) {
   return nextState;
 }
 
-
-const CANONICAL_MASTER = {
-  id: "user-gabriel-vieira",
-  name: "Gabriel Vieira",
-  role: "admin",
-  pin: "310898"
-};
-
-function normalizeAccessName(value) {
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase("pt-BR");
-}
-
-function normalizeUser(user) {
-  const role = user?.role === "admin" ? "admin" : "player";
-  return {
-    id: String(user?.id || crypto.randomUUID()),
-    name: String(user?.name || (role === "admin" ? CANONICAL_MASTER.name : "Jogador")).trim(),
-    role,
-    pin: String(role === "admin" ? (user?.pin || CANONICAL_MASTER.pin) : (user?.pin || "")),
-    createdAt: Number(user?.createdAt) || Date.now(),
-    updatedAt: Number(user?.updatedAt) || Number(user?.createdAt) || Date.now()
-  };
-}
-
-function ensureCanonicalUsers(state) {
-  if (!state || typeof state !== "object") {
-    return { state, changed: false };
-  }
-
-  const originalUsers = Array.isArray(state.users) ? state.users : [];
-  const seen = new Set();
-  const users = [];
-  let changed = !Array.isArray(state.users);
-
-  originalUsers.map(normalizeUser).forEach((user) => {
-    const key = normalizeAccessName(user.name);
-    if (!key || seen.has(key)) {
-      changed = true;
-      return;
-    }
-    seen.add(key);
-    users.push(user);
-  });
-
-  const masterKey = normalizeAccessName(CANONICAL_MASTER.name);
-  const master = users.find((user) => normalizeAccessName(user.name) === masterKey);
-  if (master) {
-    if (master.name !== CANONICAL_MASTER.name || master.role !== CANONICAL_MASTER.role || master.pin !== CANONICAL_MASTER.pin) {
-      changed = true;
-    }
-    master.name = CANONICAL_MASTER.name;
-    master.role = CANONICAL_MASTER.role;
-    master.pin = CANONICAL_MASTER.pin;
-  } else {
-    users.unshift({ ...CANONICAL_MASTER, createdAt: Date.now() });
-    changed = true;
-  }
-
-  if (users.length !== originalUsers.length) {
-    changed = true;
-  }
-
-  return {
-    state: {
-      ...state,
-      users,
-      revision: changed ? (Number(state.revision) || 0) + 1 : state.revision,
-      updatedAt: changed ? Date.now() : state.updatedAt
-    },
-    changed
-  };
-}
-
 function cloneState(value) {
   return value && typeof value === "object" ? structuredClone(value) : {};
 }
@@ -266,6 +181,77 @@ function cleanIncomingState(state) {
   delete next.activeUserId;
   delete next._baseRevision;
   delete next._changedFields;
+  delete next._changedRecords;
+  return next;
+}
+
+function changedIdSet(changes, field) {
+  if (!changes || !Array.isArray(changes[field])) return null;
+  return new Set(changes[field].map((id) => String(id || "")).filter(Boolean));
+}
+
+function retainUnchangedRecords(currentItems, incomingItems, changedIds) {
+  if (!changedIds) return Array.isArray(incomingItems) ? incomingItems : [];
+  const incomingById = new Map((Array.isArray(incomingItems) ? incomingItems : [])
+    .filter((item) => item?.id)
+    .map((item) => [item.id, item]));
+  const current = Array.isArray(currentItems) ? currentItems : [];
+  const currentIds = new Set(current.filter((item) => item?.id).map((item) => item.id));
+  return [
+    ...current.map((item) => changedIds.has(item.id) && incomingById.has(item.id) ? incomingById.get(item.id) : item),
+    ...(Array.isArray(incomingItems) ? incomingItems : []).filter((item) => item?.id && !currentIds.has(item.id) && changedIds.has(item.id))
+  ];
+}
+
+function retainJourneyEntries(currentEntries, incomingEntries, contentChangedIds, commentChanges) {
+  if (!contentChangedIds && !commentChanges) return Array.isArray(incomingEntries) ? incomingEntries : [];
+  const incomingById = new Map((Array.isArray(incomingEntries) ? incomingEntries : [])
+    .filter((entry) => entry?.id)
+    .map((entry) => [entry.id, entry]));
+  const current = Array.isArray(currentEntries) ? currentEntries : [];
+  const currentIds = new Set(current.filter((entry) => entry?.id).map((entry) => entry.id));
+  const mergeEntry = (existing) => {
+    const incoming = incomingById.get(existing.id);
+    if (!incoming) return existing;
+    const content = contentChangedIds?.has(existing.id) ? incoming : existing;
+    const commentIds = changedIdSet(commentChanges, existing.id);
+    const comments = retainUnchangedRecords(existing.comments, incoming.comments, commentIds);
+    return { ...content, comments };
+  };
+  const newEntries = (Array.isArray(incomingEntries) ? incomingEntries : []).filter((entry) => (
+    entry?.id && !currentIds.has(entry.id) && contentChangedIds?.has(entry.id)
+  ));
+  return [...current.map(mergeEntry), ...newEntries];
+}
+
+function applyIncomingRecordDelta(currentState, incomingState) {
+  const changes = incomingState?._changedRecords;
+  if (!changes || typeof changes !== "object") return incomingState;
+  const next = structuredClone(incomingState || {});
+  ["rooms", "npcs", "financeSources", "ledger", "faithTransactions", "events"].forEach((field) => {
+    next[field] = retainUnchangedRecords(currentState[field], next[field], changedIdSet(changes, field));
+  });
+  next.campfire = next.campfire || {};
+  next.campfire.heroes = retainUnchangedRecords(currentState.campfire?.heroes, next.campfire.heroes, changedIdSet(changes, "campfireHeroes"));
+  next.campfire.investigationBoard = next.campfire.investigationBoard || {};
+  next.campfire.investigationBoard.notes = retainUnchangedRecords(
+    currentState.campfire?.investigationBoard?.notes,
+    next.campfire.investigationBoard.notes,
+    changedIdSet(changes, "investigationNotes")
+  );
+  next.campfire.investigationBoard.links = retainUnchangedRecords(
+    currentState.campfire?.investigationBoard?.links,
+    next.campfire.investigationBoard.links,
+    changedIdSet(changes, "investigationLinks")
+  );
+  next.journey = next.journey || {};
+  next.journey.entries = retainJourneyEntries(
+    currentState.journey?.entries,
+    next.journey.entries,
+    changedIdSet(changes, "journeyEntryContent") || changedIdSet(changes, "journeyEntries"),
+    changes.journeyComments
+  );
+  next.journey.reads = retainUnchangedRecords(currentState.journey?.reads, next.journey.reads, changedIdSet(changes, "journeyReads"));
   return next;
 }
 
@@ -302,11 +288,8 @@ function mergeDeletedRecords(currentRecords, incomingRecords) {
         map.set(key, record);
       }
     });
-  const cutoff = Date.now() - 1000 * 60 * 60 * 24 * 30;
-  return [...map.values()]
-    .filter((record) => record.deletedAt >= cutoff)
-    .sort((a, b) => a.deletedAt - b.deletedAt)
-    .slice(-500);
+  // Tombstones must remain durable: an offline client must never revive a deleted item.
+  return [...map.values()].sort((a, b) => a.deletedAt - b.deletedAt);
 }
 
 function tombstoneMap(records) {
@@ -474,101 +457,269 @@ function mergeStates(currentState, incomingState) {
   return merged;
 }
 
-async function readStateRow(env) {
-  const config = getConfig(env);
-  if (!config.supabaseUrl || !config.serviceKey) {
-    return null;
-  }
-
-  const url = `${config.supabaseUrl}/rest/v1/${config.table}?id=eq.${encodeURIComponent(config.rowId)}&select=state_json,revision,updated_at`;
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${config.serviceKey}`,
-      apikey: config.serviceKey,
-      Accept: "application/json"
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Falha ao ler o estado: ${response.status}`);
-  }
-
-  const rows = await response.json();
-  return Array.isArray(rows) && rows.length ? rows[0] : null;
+function preserveServerUsers(currentState, candidateState) {
+  return {
+    ...candidateState,
+    // Credentials and roles are server-owned. User administration has its own authenticated route.
+    users: Array.isArray(currentState.users) ? structuredClone(currentState.users) : []
+  };
 }
 
-async function writeStateRow(env, state) {
-  const config = getConfig(env);
-  if (!config.supabaseUrl || !config.serviceKey) {
-    throw new Error("Configuração do Supabase ausente.");
-  }
+function keepExistingAndOwnItems(currentItems, incomingItems, actor, ownerField = "createdByUserId") {
+  const current = Array.isArray(currentItems) ? currentItems : [];
+  const currentIds = new Set(current.filter((item) => item?.id).map((item) => item.id));
+  const incomingById = new Map((Array.isArray(incomingItems) ? incomingItems : []).filter((item) => item?.id).map((item) => [item.id, item]));
+  const existing = current.map((item) => item?.[ownerField] === actor.id && incomingById.has(item.id) ? incomingById.get(item.id) : item);
+  const ownNew = (Array.isArray(incomingItems) ? incomingItems : []).filter((item) => (
+    item?.id && !currentIds.has(item.id) && item[ownerField] === actor.id
+  ));
+  return [...structuredClone(existing), ...structuredClone(ownNew)];
+}
 
-  const payload = {
-    id: config.rowId,
-    state_json: state,
-    revision: Number(state.revision) || 0,
-    updated_at: new Date().toISOString()
-  };
-
-  const response = await fetch(`${config.supabaseUrl}/rest/v1/${config.table}?on_conflict=id`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.serviceKey}`,
-      apikey: config.serviceKey,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation"
-    },
-    body: JSON.stringify([payload])
+function restrictJourneyForPlayer(currentJourney, incomingJourney, actor) {
+  const currentEntries = Array.isArray(currentJourney?.entries) ? currentJourney.entries : [];
+  const incomingById = new Map((Array.isArray(incomingJourney?.entries) ? incomingJourney.entries : []).filter((entry) => entry?.id).map((entry) => [entry.id, entry]));
+  const currentIds = new Set(currentEntries.map((entry) => entry.id));
+  const entries = currentEntries.map((entry) => {
+    const incoming = incomingById.get(entry.id);
+    if (!incoming) return structuredClone(entry);
+    const currentComments = Array.isArray(entry.comments) ? entry.comments : [];
+    const incomingComments = Array.isArray(incoming.comments) ? incoming.comments : [];
+    const currentCommentIds = new Set(currentComments.filter((comment) => comment?.id).map((comment) => comment.id));
+    const incomingCommentsById = new Map(incomingComments.filter((comment) => comment?.id).map((comment) => [comment.id, comment]));
+    const comments = [
+      ...currentComments.map((comment) => comment.userId === actor.id && incomingCommentsById.has(comment.id)
+        ? incomingCommentsById.get(comment.id)
+        : comment),
+      ...incomingComments.filter((comment) => !currentCommentIds.has(comment?.id) && comment?.userId === actor.id)
+    ];
+    return entry.createdByUserId === actor.id
+      ? { ...structuredClone(incoming), comments }
+      : { ...structuredClone(entry), comments };
   });
+  const ownNew = (Array.isArray(incomingJourney?.entries) ? incomingJourney.entries : [])
+    .filter((entry) => entry?.id && !currentIds.has(entry.id) && entry.createdByUserId === actor.id);
+  const currentReads = Array.isArray(currentJourney?.reads) ? currentJourney.reads : [];
+  const incomingReads = Array.isArray(incomingJourney?.reads) ? incomingJourney.reads : [];
+  const incomingReadsById = new Map(incomingReads.filter((read) => read?.id).map((read) => [read.id, read]));
+  const readableEntryIds = new Set([...currentIds, ...ownNew.map((entry) => entry.id)]);
+  const reads = [
+    ...currentReads.map((read) => read.userId === actor.id && incomingReadsById.has(read.id)
+      ? incomingReadsById.get(read.id)
+      : read),
+    ...incomingReads.filter((read) => read?.id && !currentReads.some((current) => current.id === read.id)
+      && read.userId === actor.id && readableEntryIds.has(read.entryId))
+  ];
+  return {
+    ...structuredClone(currentJourney || {}),
+    entries: [...entries, ...structuredClone(ownNew)],
+    reads
+  };
+}
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Falha ao salvar o estado (${response.status}): ${detail}`);
+function canPlayerDeleteRecord(record, currentState, actor) {
+  const type = String(record?.type || "");
+  const id = String(record?.id || "");
+  if (!id) return false;
+  const ownedIn = (items, ownerField = "createdByUserId") => (Array.isArray(items) ? items : [])
+    .some((item) => item?.id === id && item?.[ownerField] === actor.id);
+  if (["source", "ledger", "event"].includes(type)) {
+    const collection = type === "source" ? currentState.financeSources : type === "ledger" ? currentState.ledger : currentState.events;
+    return ownedIn(collection);
   }
+  if (type === "campfireHero") return ownedIn(currentState.campfire?.heroes, "ownerUserId");
+  if (type === "journeyEntry") return ownedIn(currentState.journey?.entries);
+  if (type === "journeyComment") {
+    return (currentState.journey?.entries || []).some((entry) => (entry.comments || [])
+      .some((comment) => comment?.id === id && comment.userId === actor.id));
+  }
+  // Investigation notes and links are intentionally shared by the whole table.
+  return type === "investigationNote" || type === "investigationLink";
+}
 
-  return response.json();
+function restrictPlayerPayload(currentState, incomingState, actor) {
+  const next = structuredClone(incomingState || {});
+  // Campaign structure and privileged configuration remain immutable to a player.
+  ["rooms", "npcs", "market", "currentDay", "autoProcessRecurring", "startingBalanceCopper", "users"].forEach((field) => {
+    next[field] = structuredClone(currentState[field]);
+  });
+  next.financeSources = keepExistingAndOwnItems(currentState.financeSources, incomingState.financeSources, actor);
+  next.ledger = keepExistingAndOwnItems(currentState.ledger, incomingState.ledger, actor, "createdByUserId");
+  next.events = keepExistingAndOwnItems(currentState.events, incomingState.events, actor);
+  const currentFaith = Array.isArray(currentState.faithTransactions) ? currentState.faithTransactions : [];
+  let availableFaith = currentFaith
+    .filter((entry) => entry?.userId === actor.id)
+    .reduce((total, entry) => total + Number(entry.amount || 0), 0);
+  const newFaithUses = (Array.isArray(incomingState.faithTransactions) ? incomingState.faithTransactions : [])
+    .filter((entry) => !currentFaith.some((current) => current.id === entry?.id) && (
+      entry?.userId === actor.id && entry?.createdByUserId === actor.id && Number(entry?.amount) === -1
+    ))
+    .filter((entry) => {
+      if (availableFaith < 1) return false;
+      availableFaith -= 1;
+      return true;
+    });
+  next.faithTransactions = [...structuredClone(currentFaith), ...structuredClone(newFaithUses)];
+  next.campfire = {
+    ...structuredClone(currentState.campfire || {}),
+    investigationBoard: structuredClone(incomingState.campfire?.investigationBoard || currentState.campfire?.investigationBoard || {}),
+    heroes: (() => {
+      const currentHeroes = Array.isArray(currentState.campfire?.heroes) ? currentState.campfire.heroes : [];
+      const incomingById = new Map((Array.isArray(incomingState.campfire?.heroes) ? incomingState.campfire.heroes : []).filter((hero) => hero?.id).map((hero) => [hero.id, hero]));
+      const currentIds = new Set(currentHeroes.map((hero) => hero.id));
+      return [
+        ...currentHeroes.map((hero) => hero.ownerUserId === actor.id && incomingById.has(hero.id) ? incomingById.get(hero.id) : hero),
+        ...(Array.isArray(incomingState.campfire?.heroes) ? incomingState.campfire.heroes : []).filter((hero) => hero?.id && !currentIds.has(hero.id) && hero.ownerUserId === actor.id)
+      ];
+    })()
+  };
+  next.journey = restrictJourneyForPlayer(currentState.journey, incomingState.journey, actor);
+  const currentDeleted = Array.isArray(currentState.deletedRecords) ? currentState.deletedRecords : [];
+  const existingDeleted = new Set(currentDeleted.map((record) => `${record?.type || ""}:${record?.id || ""}`));
+  const newAllowedDeleted = (Array.isArray(incomingState.deletedRecords) ? incomingState.deletedRecords : [])
+    .filter((record) => {
+      const key = `${record?.type || ""}:${record?.id || ""}`;
+      return !existingDeleted.has(key) && canPlayerDeleteRecord(record, currentState, actor);
+    });
+  next.deletedRecords = [...structuredClone(currentDeleted), ...structuredClone(newAllowedDeleted)];
+  return next;
+}
+
+function comparable(value, ignored = []) {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((entry) => comparable(entry, ignored));
+  const copy = {};
+  Object.entries(value).forEach(([key, entry]) => {
+    if (!ignored.includes(key)) copy[key] = comparable(entry, ignored);
+  });
+  return copy;
+}
+
+function hasChanged(current, incoming, ignored = ["updatedAt", "createdAt"]) {
+  return JSON.stringify(comparable(current, ignored)) !== JSON.stringify(comparable(incoming, ignored));
+}
+
+function stampCollection(currentItems, incomingItems, now) {
+  const currentById = new Map((Array.isArray(currentItems) ? currentItems : []).filter((item) => item?.id).map((item) => [item.id, item]));
+  return (Array.isArray(incomingItems) ? incomingItems : []).map((item) => {
+    if (!item?.id) return item;
+    const current = currentById.get(item.id);
+    if (!current || hasChanged(current, item)) return { ...item, createdAt: Number(item.createdAt) || now, updatedAt: now };
+    return item;
+  });
+}
+
+function stampInvestigationNotes(currentNotes, incomingNotes, now) {
+  const currentById = new Map((Array.isArray(currentNotes) ? currentNotes : []).filter((note) => note?.id).map((note) => [note.id, note]));
+  return (Array.isArray(incomingNotes) ? incomingNotes : []).map((note) => {
+    const current = currentById.get(note?.id);
+    if (!current) return { ...note, createdAt: Number(note?.createdAt) || now, updatedAt: now, contentUpdatedAt: now, positionUpdatedAt: now };
+    const contentChanged = hasChanged(current, note, ["updatedAt", "createdAt", "x", "y", "positionUpdatedAt", "contentUpdatedAt"]);
+    const positionChanged = Number(current.x) !== Number(note.x) || Number(current.y) !== Number(note.y);
+    if (!contentChanged && !positionChanged) return note;
+    return {
+      ...note,
+      contentUpdatedAt: contentChanged ? now : Number(note.contentUpdatedAt) || Number(current.contentUpdatedAt) || now,
+      positionUpdatedAt: positionChanged ? now : Number(note.positionUpdatedAt) || Number(current.positionUpdatedAt) || now,
+      updatedAt: now
+    };
+  });
+}
+
+function journeyEntryContentChanged(current, incoming) {
+  return JSON.stringify(comparable(current, ["updatedAt", "createdAt", "comments"]))
+    !== JSON.stringify(comparable(incoming, ["updatedAt", "createdAt", "comments"]));
+}
+
+function stampJourneyEntries(currentEntries, incomingEntries, now) {
+  const currentById = new Map((Array.isArray(currentEntries) ? currentEntries : [])
+    .filter((entry) => entry?.id)
+    .map((entry) => [entry.id, entry]));
+  return (Array.isArray(incomingEntries) ? incomingEntries : []).map((entry) => {
+    const current = currentById.get(entry?.id);
+    const contentChanged = !current || journeyEntryContentChanged(current, entry);
+    return {
+      ...entry,
+      createdAt: Number(entry?.createdAt) || Number(current?.createdAt) || now,
+      updatedAt: contentChanged ? now : Number(current?.updatedAt) || Number(entry?.updatedAt) || now,
+      comments: stampCollection(current?.comments, entry?.comments, now)
+    };
+  });
+}
+
+function stampIncomingState(currentState, incomingState) {
+  const now = Date.now();
+  const next = structuredClone(incomingState || {});
+  ["rooms", "npcs", "financeSources", "ledger", "faithTransactions", "events"].forEach((field) => {
+    next[field] = stampCollection(currentState[field], next[field], now);
+  });
+  next.campfire = next.campfire || {};
+  next.campfire.heroes = stampCollection(currentState.campfire?.heroes, next.campfire.heroes, now);
+  next.campfire.investigationBoard = next.campfire.investigationBoard || {};
+  next.campfire.investigationBoard.notes = stampInvestigationNotes(currentState.campfire?.investigationBoard?.notes, next.campfire.investigationBoard.notes, now);
+  next.campfire.investigationBoard.links = stampCollection(currentState.campfire?.investigationBoard?.links, next.campfire.investigationBoard.links, now);
+  next.journey = next.journey || {};
+  next.journey.entries = stampJourneyEntries(currentState.journey?.entries, next.journey.entries, now);
+  const currentReadsById = new Map((currentState.journey?.reads || []).filter((read) => read?.id).map((read) => [read.id, read]));
+  next.journey.reads = (Array.isArray(next.journey.reads) ? next.journey.reads : []).map((read) => {
+    const current = currentReadsById.get(read?.id);
+    if (!current || hasChanged(current, read, ["updatedAt", "createdAt"])) {
+      return { ...read, createdAt: Number(read?.createdAt) || now, updatedAt: now, readAt: now };
+    }
+    return read;
+  });
+  return next;
+}
+
+async function authenticateRequest(request, env, currentState) {
+  const session = await verifySessionToken(env, getBearerToken(request));
+  if (!session) return null;
+  const user = (currentState.users || []).find((entry) => entry.id === session.sub);
+  if (!user || Number(user.authVersion) !== Number(session.ver) || user.role !== session.role) return null;
+  return user;
 }
 
 export async function onRequest({ request, env }) {
   try {
+    if (!["GET", "PUT"].includes(request.method)) return errorResponse("Método não permitido.", 405);
+
+    const row = await readStateRow(env);
+    if (!row?.state_json) return errorResponse("Campanha não inicializada.", 503);
+    const migrated = await migrateCredentials(row.state_json);
+    const currentState = migrated.state;
+    const actor = await authenticateRequest(request, env, currentState);
+    if (!actor) return errorResponse("Autenticação necessária.", 401);
+
+    const currentRevision = Math.max(Number(row.revision) || 0, Number(currentState.revision) || 0);
+    if (migrated.changed) {
+      currentState.revision = currentRevision + 1;
+      currentState.updatedAt = Date.now();
+      await writeStateRow(env, currentState);
+    }
+
     if (request.method === "GET") {
-      const row = await readStateRow(env);
-      if (!row?.state_json) {
-        return new Response("{}", {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            "Cache-Control": "no-store"
-          }
-        });
-      }
-      const repaired = ensureCanonicalUsers(row.state_json);
-      if (repaired.changed) {
-        await writeStateRow(env, repaired.state);
-      }
-      return jsonResponse(JSON.stringify(repaired.state), { status: 200 });
+      return jsonResponse(JSON.stringify(sanitizeStateForClient(currentState)), { status: 200 });
     }
 
-    if (request.method === "PUT") {
-      const incoming = await request.json();
-      const row = await readStateRow(env);
-      const currentState = row?.state_json && typeof row.state_json === "object" ? row.state_json : {};
-      const currentRevision = Math.max(Number(row?.revision) || 0, Number(currentState.revision) || 0);
-      const hydrated = await hydrateStateImages(cleanIncomingState(incoming), env);
-      const hasCurrentState = currentState && typeof currentState === "object" && Object.keys(currentState).length > 0;
-      const merged = hasCurrentState
-        ? mergeStates(currentState, { ...hydrated, _changedFields: incoming._changedFields })
-        : hydrated;
-      const repaired = ensureCanonicalUsers(merged);
-      const finalState = cleanIncomingState(repaired.state);
-      finalState.revision = currentRevision + 1;
-      finalState.updatedAt = Date.now();
-      finalState.deletedRecords = Array.isArray(finalState.deletedRecords) ? finalState.deletedRecords.slice(-500) : [];
-      await writeStateRow(env, finalState);
-      return jsonResponse(JSON.stringify(finalState), { status: 200 });
-    }
-
-    return errorResponse("Método não permitido.", 405);
+    const baseRevision = Math.max(0, Number.parseInt(request.headers.get("X-Base-Revision") || "0", 10) || 0);
+    const rebased = baseRevision > 0 && baseRevision < currentRevision;
+    const incoming = await request.json();
+    const deltaIncoming = applyIncomingRecordDelta(currentState, incoming);
+    const authorizedIncoming = actor.role === "admin"
+      ? deltaIncoming
+      : restrictPlayerPayload(currentState, deltaIncoming, actor);
+    const stampedIncoming = stampIncomingState(currentState, authorizedIncoming);
+    const hydrated = await hydrateStateImages(cleanIncomingState(stampedIncoming), env);
+    const merged = mergeStates(currentState, { ...hydrated, _changedFields: incoming._changedFields });
+    const finalState = cleanIncomingState(preserveServerUsers(currentState, merged));
+    finalState.revision = Math.max(currentRevision, Number(currentState.revision) || 0) + 1;
+    finalState.updatedAt = Date.now();
+    finalState.deletedRecords = Array.isArray(finalState.deletedRecords) ? finalState.deletedRecords : [];
+    await writeStateRow(env, finalState);
+    return jsonResponse(JSON.stringify(sanitizeStateForClient(finalState)), {
+      status: 200,
+      headers: { "X-State-Rebased": rebased ? "1" : "0", "X-State-Revision": String(finalState.revision) }
+    });
   } catch (error) {
     return errorResponse(error?.message || "Erro inesperado ao processar o estado.", 500);
   }

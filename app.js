@@ -60,14 +60,7 @@ const userRoles = {
   admin: "admin",
   player: "player"
 };
-
-const CANONICAL_MASTER = {
-  id: "user-gabriel-vieira",
-  name: "Gabriel Vieira",
-  role: userRoles.admin,
-  pin: "310898"
-};
-
+const AUTH_API_BASE = "/api/auth";
 const SYNC_INTERVAL_MS = 60000;
 const MIN_SYNC_GAP_MS = 15000;
 const INVESTIGATION_BOARD_MIN_WIDTH = 1200;
@@ -82,6 +75,8 @@ let catalog = [];
 let catalogLoaded = false;
 let state = freshState();
 let sessionUserId = null;
+let sessionToken = null;
+let sessionExpiresAt = 0;
 let authReady = false;
 let toastTimer = null;
 let syncTimer = null;
@@ -198,6 +193,7 @@ async function init() {
   bindEvents();
   initializeDateSelects();
   initializeComposerState();
+  restoreSession();
   state = await loadSharedState();
   restoreSession();
   populateStaticForms();
@@ -209,8 +205,8 @@ async function init() {
 }
 
 function getActiveUser() {
-  const users = Array.isArray(state.users) && state.users.length ? state.users : freshState().users;
-  return users.find((user) => user.id === sessionUserId) || users[0];
+  const users = Array.isArray(state.users) ? state.users : [];
+  return users.find((user) => user.id === sessionUserId) || null;
 }
 
 function getActiveUserId() {
@@ -267,21 +263,6 @@ function canAccessView(view) {
   if (view === "settings") {
     return isAdmin();
   }
-  return true;
-}
-
-function setActiveUser(userId) {
-  const nextUser = state.users.find((user) => user.id === userId);
-  if (!nextUser) {
-    return false;
-  }
-  sessionUserId = nextUser.id;
-  state.activeUserId = nextUser.id;
-  saveSession();
-  applyAuthState();
-  renderPermissions();
-  render();
-  showToast(`Perfil ativo: ${nextUser.name}.`);
   return true;
 }
 
@@ -536,7 +517,6 @@ function freshState() {
   const roomTavernId = createId("room");
   const maeraId = createId("npc");
   const dornId = createId("npc");
-  const masterUserId = createId("user");
   const masterHeroId = createId("hero");
   const guestHeroId = createId("hero");
   return {
@@ -547,15 +527,7 @@ function freshState() {
     updatedAt: Date.now(),
     deletedRecords: [],
     activeUserId: null,
-    users: [
-      {
-        id: masterUserId,
-        name: "Gabriel Vieira",
-        role: userRoles.admin,
-        pin: "310898",
-        createdAt: Date.now()
-      }
-    ],
+    users: [],
     rooms: [
       {
         id: roomTavernId,
@@ -676,7 +648,7 @@ function freshState() {
     heroes: [
         {
         id: masterHeroId,
-        ownerUserId: masterUserId,
+          ownerUserId: "",
         ownerName: "Gabriel Vieira",
         characterName: "Iril Vantor",
           image: "",
@@ -756,7 +728,6 @@ function freshState() {
 }
 
 function emptyState() {
-  const masterUserId = createId("user");
   return {
     version: 1,
     currentDay: 1,
@@ -765,16 +736,7 @@ function emptyState() {
     updatedAt: Date.now(),
     deletedRecords: [],
     activeUserId: null,
-    users: [
-      {
-        id: masterUserId,
-        name: "Gabriel Vieira",
-        role: userRoles.admin,
-        pin: "310898",
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      }
-    ],
+    users: [],
     rooms: [],
     npcs: [],
     financeSources: [],
@@ -831,10 +793,18 @@ async function loadSeedState() {
 }
 
 async function loadSharedState() {
-  const fallback = isLocalDevelopmentHost() ? loadLocalState() : null;
-  const seed = await loadSeedState();
+  const isLocal = isLocalDevelopmentHost();
+  const fallback = isLocal ? loadLocalState() : null;
+  if (!sessionToken && !isLocal) {
+    return emptyState();
+  }
+  const seed = isLocal ? await loadSeedState() : null;
   try {
-    const response = await fetch(STATE_API_URL, { cache: "no-store" });
+    const response = await fetch(STATE_API_URL, { cache: "no-store", headers: authHeaders() });
+    if (response.status === 401 && !isLocal) {
+      clearSession();
+      return emptyState();
+    }
     if (response.ok) {
       const text = await response.text();
       if (text.trim()) {
@@ -859,7 +829,7 @@ async function loadSharedState() {
     return fallback;
   }
 
-  const fresh = isLocalDevelopmentHost() ? freshState() : emptyState();
+  const fresh = isLocal ? freshState() : emptyState();
   saveLocalState(fresh);
   return fresh;
 }
@@ -882,7 +852,7 @@ function normalizeState(value) {
   const normalizedUsers = Array.isArray(data.users) && data.users.length
     ? data.users.map(normalizeUser)
     : fallback.users;
-  const users = ensureCanonicalUsers(normalizedUsers);
+  const users = normalizeUsers(normalizedUsers);
   const activeUserId = users.some((user) => user.id === data.activeUserId)
     ? data.activeUserId
     : null;
@@ -892,7 +862,7 @@ function normalizeState(value) {
     startingBalanceCopper: toSafeCopper(data.startingBalanceCopper, fallback.startingBalanceCopper),
     revision: Math.max(0, Number.parseInt(data.revision, 10) || fallback.revision || 0),
     updatedAt: Number(data.updatedAt) || fallback.updatedAt || Date.now(),
-    deletedRecords: Array.isArray(data.deletedRecords) ? data.deletedRecords.map(normalizeDeletedRecord).filter(Boolean).slice(-500) : [],
+    deletedRecords: Array.isArray(data.deletedRecords) ? data.deletedRecords.map(normalizeDeletedRecord).filter(Boolean) : [],
     activeUserId,
     users,
     rooms: Array.isArray(data.rooms) ? data.rooms.map(normalizeRoom) : fallback.rooms,
@@ -919,11 +889,14 @@ function hasMeaningfulState(value) {
 
 function normalizeUser(user) {
   const role = user?.role === userRoles.admin ? userRoles.admin : userRoles.player;
+  const localPin = isLocalDevelopmentHost() ? String(user?.pin || user?.localPin || "") : "";
   return {
     id: user?.id || createId("user"),
-    name: user?.name?.trim() || (role === userRoles.admin ? "Gabriel Vieira" : "Jogador"),
+    name: user?.name?.trim() || "Jogador",
     role,
-    pin: String(role === userRoles.admin ? (user?.pin || "310898") : (user?.pin || "")),
+    // The local development server needs the PIN to exercise the legacy local login.
+    // Public state is sanitized on the server and never receives this field.
+    ...(isLocalDevelopmentHost() ? { pin: localPin, localPin } : {}),
     createdAt: Number(user?.createdAt) || Date.now(),
     updatedAt: Number(user?.updatedAt) || Number(user?.createdAt) || Date.now()
   };
@@ -963,8 +936,8 @@ function normalizeDeletedRecord(record) {
 }
 
 
-function ensureCanonicalUsers(users) {
-  const source = Array.isArray(users) && users.length ? users : [CANONICAL_MASTER];
+function normalizeUsers(users) {
+  const source = Array.isArray(users) ? users : [];
   const seen = new Set();
   const cleaned = [];
 
@@ -977,25 +950,7 @@ function ensureCanonicalUsers(users) {
     cleaned.push(user);
   });
 
-  const masterNameKey = normalizeAccessName(CANONICAL_MASTER.name);
-  const master = cleaned.find((user) => normalizeAccessName(user.name) === masterNameKey);
-  if (master) {
-    master.name = CANONICAL_MASTER.name;
-    master.role = userRoles.admin;
-    master.pin = CANONICAL_MASTER.pin;
-  } else {
-    cleaned.unshift({
-      ...CANONICAL_MASTER,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    });
-  }
-
-  return cleaned.length ? cleaned : [{
-    ...CANONICAL_MASTER,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  }];
+  return cleaned;
 }
 function normalizeRoom(room) {
   const upgradeCost = toSafeCopper(room.upgradeCostCopper, gpToCopper(Number(room.upgradeCostGp) || 0));
@@ -1064,6 +1019,7 @@ function normalizeSource(source) {
     active: source.active !== false,
     note: source.note || "",
     linkedNpcId: source.linkedNpcId || "",
+    createdByUserId: String(source.createdByUserId || ""),
     updatedAt: Number(source.updatedAt) || Date.now()
   };
 }
@@ -1077,6 +1033,7 @@ function normalizeLedgerEntry(entry) {
     amountCopper: toSafeCopper(entry.amountCopper, 0),
     sourceId: entry.sourceId || "",
     note: entry.note || "",
+    createdByUserId: String(entry.createdByUserId || ""),
     createdAt: Number(entry.createdAt) || Date.now()
   };
 }
@@ -1088,6 +1045,7 @@ function normalizeCalendarEvent(event) {
     type: ["event", "session", "quest", "warning"].includes(event.type) ? event.type : "event",
     day: Math.max(1, Number.parseInt(event.day, 10) || 1),
     description: event.description || "",
+    createdByUserId: String(event.createdByUserId || ""),
     createdAt: Number(event.createdAt) || Date.now()
   };
 }
@@ -1457,14 +1415,13 @@ function saveLocalState(nextState) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
   } catch (error) {
-    // ignore local cache failures
+    showToast("O navegador não conseguiu guardar o cache local. Seus dados seguem no servidor.");
   }
 }
 
 function getSavableStateSnapshot(nextState) {
   const snapshot = JSON.parse(JSON.stringify(nextState || {}));
   delete snapshot.activeUserId;
-  delete snapshot._baseRevision;
   delete snapshot._changedFields;
   return snapshot;
 }
@@ -1496,6 +1453,59 @@ function getChangedFieldsForSave(nextState) {
   return fields;
 }
 
+function getChangedRecordIds(nextItems, baselineItems) {
+  const baselineById = new Map((Array.isArray(baselineItems) ? baselineItems : [])
+    .filter((item) => item?.id)
+    .map((item) => [item.id, item]));
+  return (Array.isArray(nextItems) ? nextItems : [])
+    .filter((item) => item?.id && JSON.stringify(item) !== JSON.stringify(baselineById.get(item.id)))
+    .map((item) => item.id);
+}
+
+function getJourneyEntryContent(entry) {
+  const copy = { ...(entry || {}) };
+  delete copy.comments;
+  return copy;
+}
+
+function getChangedJourneyRecords(nextEntries, baselineEntries) {
+  const baselineById = new Map((Array.isArray(baselineEntries) ? baselineEntries : [])
+    .filter((entry) => entry?.id)
+    .map((entry) => [entry.id, entry]));
+  const content = [];
+  const comments = {};
+  (Array.isArray(nextEntries) ? nextEntries : []).forEach((entry) => {
+    if (!entry?.id) return;
+    const baseline = baselineById.get(entry.id);
+    if (!baseline || JSON.stringify(getJourneyEntryContent(entry)) !== JSON.stringify(getJourneyEntryContent(baseline))) {
+      content.push(entry.id);
+    }
+    const changedComments = getChangedRecordIds(entry.comments, baseline?.comments);
+    if (changedComments.length) comments[entry.id] = changedComments;
+  });
+  return { content, comments };
+}
+
+function getChangedRecordsForSave(nextState) {
+  const baseline = lastSyncedStateSnapshot || {};
+  const journeyChanges = getChangedJourneyRecords(nextState.journey?.entries, baseline.journey?.entries);
+  return {
+    rooms: getChangedRecordIds(nextState.rooms, baseline.rooms),
+    npcs: getChangedRecordIds(nextState.npcs, baseline.npcs),
+    financeSources: getChangedRecordIds(nextState.financeSources, baseline.financeSources),
+    ledger: getChangedRecordIds(nextState.ledger, baseline.ledger),
+    faithTransactions: getChangedRecordIds(nextState.faithTransactions, baseline.faithTransactions),
+    events: getChangedRecordIds(nextState.events, baseline.events),
+    campfireHeroes: getChangedRecordIds(nextState.campfire?.heroes, baseline.campfire?.heroes),
+    investigationNotes: getChangedRecordIds(nextState.campfire?.investigationBoard?.notes, baseline.campfire?.investigationBoard?.notes),
+    investigationLinks: getChangedRecordIds(nextState.campfire?.investigationBoard?.links, baseline.campfire?.investigationBoard?.links),
+    journeyEntries: journeyChanges.content,
+    journeyEntryContent: journeyChanges.content,
+    journeyComments: journeyChanges.comments,
+    journeyReads: getChangedRecordIds(nextState.journey?.reads, baseline.journey?.reads)
+  };
+}
+
 function addDeletedRecord(type, id, deletedAt = Date.now()) {
   if (!type || !id) {
     return;
@@ -1503,8 +1513,7 @@ function addDeletedRecord(type, id, deletedAt = Date.now()) {
   const records = Array.isArray(state.deletedRecords) ? state.deletedRecords : [];
   state.deletedRecords = records
     .filter((record) => !(record.type === type && record.id === id))
-    .concat({ type, id, deletedAt })
-    .slice(-500);
+    .concat({ type, id, deletedAt });
 }
 
 
@@ -1517,9 +1526,9 @@ function saveState(nextState = state, options = {}) {
   nextState.revision = (Number(nextState.revision) || 0) + 1;
   nextState.updatedAt = Date.now();
   const payloadState = { ...nextState };
-  payloadState.deletedRecords = Array.isArray(payloadState.deletedRecords) ? payloadState.deletedRecords.slice(-500) : [];
-  payloadState._baseRevision = lastSyncedRevision;
+  payloadState.deletedRecords = Array.isArray(payloadState.deletedRecords) ? payloadState.deletedRecords : [];
   payloadState._changedFields = getChangedFieldsForSave(payloadState);
+  payloadState._changedRecords = getChangedRecordsForSave(payloadState);
   delete payloadState.activeUserId;
   saveLocalState(getSavableStateSnapshot(payloadState));
   pendingPayload = JSON.stringify(payloadState);
@@ -1555,13 +1564,13 @@ async function flushStateSave() {
 
 function saveSession() {
   try {
-    if (sessionUserId) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: sessionUserId, updatedAt: Date.now() }));
+    if (sessionUserId && (sessionToken || isLocalDevelopmentHost())) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: sessionUserId, token: sessionToken || "", expiresAt: sessionExpiresAt || 0, updatedAt: Date.now() }));
     } else {
       localStorage.removeItem(SESSION_KEY);
     }
   } catch (error) {
-    // ignore local cache failures
+    showToast("O navegador bloqueou a sessão local. Mantenha esta aba aberta para continuar.");
   }
 }
 
@@ -1572,24 +1581,43 @@ function loadSession() {
       return null;
     }
     const parsed = JSON.parse(raw);
-    return typeof parsed?.userId === "string" ? parsed.userId : null;
+    return typeof parsed?.userId === "string" ? parsed : null;
   } catch (error) {
     return null;
   }
 }
 
 function restoreSession() {
-  const userId = loadSession();
-  const user = userId ? state.users.find((entry) => entry.id === userId) : null;
+  const saved = loadSession();
+  if (saved) {
+    sessionUserId = saved.userId;
+    sessionToken = String(saved.token || "");
+    sessionExpiresAt = Number(saved.expiresAt) || 0;
+  }
+  if (sessionExpiresAt && sessionExpiresAt <= Date.now()) {
+    clearSession();
+  }
+  const user = sessionUserId ? state.users.find((entry) => entry.id === sessionUserId) : null;
   if (user) {
     sessionUserId = user.id;
     state.activeUserId = user.id;
   } else {
-    sessionUserId = null;
-    state.activeUserId = null;
+    if (!sessionToken || isLocalDevelopmentHost()) clearSession();
   }
   authReady = true;
   applyAuthState();
+}
+
+function clearSession() {
+  sessionUserId = null;
+  sessionToken = null;
+  sessionExpiresAt = 0;
+  if (state) state.activeUserId = null;
+  try { localStorage.removeItem(SESSION_KEY); } catch (error) { /* browser storage unavailable */ }
+}
+
+function authHeaders(extra = {}) {
+  return sessionToken ? { ...extra, Authorization: `Bearer ${sessionToken}` } : { ...extra };
 }
 
 function normalizeAccessName(value) {
@@ -1627,13 +1655,21 @@ function applyAuthState() {
 
 
 async function persistState(payload) {
+  if (!sessionToken && !isLocalDevelopmentHost()) return false;
   try {
     const response = await fetch(STATE_API_URL, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json", "X-Base-Revision": String(lastSyncedRevision || 0) }),
       keepalive: payload.length < 60000,
       body: payload
     });
+    if (response.status === 401) {
+      clearSession();
+      applyAuthState();
+      render();
+      showToast("Sua sessão expirou. Entre novamente.");
+      return false;
+    }
     if (!response.ok) {
       return false;
     }
@@ -1692,6 +1728,7 @@ function requestStateSync(options = {}) {
 }
 
 async function syncStateFromServer() {
+  if (!sessionToken && !isLocalDevelopmentHost()) return;
   if (syncInFlight || saveInFlight || pendingPayload || investigationDragState) {
     return;
   }
@@ -1702,7 +1739,13 @@ async function syncStateFromServer() {
   lastSyncStartedAt = now;
   syncInFlight = true;
   try {
-    const response = await fetch(STATE_API_URL, { cache: "no-store" });
+    const response = await fetch(STATE_API_URL, { cache: "no-store", headers: authHeaders() });
+    if (response.status === 401) {
+      clearSession();
+      applyAuthState();
+      render();
+      return;
+    }
     if (!response.ok) {
       return;
     }
@@ -1945,9 +1988,7 @@ function setMobileNavigation(open) {
 }
 
 function logout() {
-  sessionUserId = null;
-  state.activeUserId = null;
-  saveSession();
+  clearSession();
   applyAuthState();
   showView("dashboard");
   render();
@@ -2905,6 +2946,7 @@ function saveSource(event) {
     active: $("#sourceActive").checked,
     note: $("#sourceNote").value.trim(),
     linkedNpcId: existing?.linkedNpcId || "",
+    createdByUserId: existing?.createdByUserId || getActiveUserId() || "",
     updatedAt: Date.now()
   };
 
@@ -3109,6 +3151,7 @@ function saveLedgerEntry(event) {
     amountCopper: gpToCopper(Number($("#ledgerAmount").value) || 0),
     sourceId: "",
     note: "",
+    createdByUserId: getActiveUserId() || "",
     createdAt: Date.now()
   };
 
@@ -3422,12 +3465,14 @@ function renderCalendarEntry(entry) {
 function saveCalendarEvent(event) {
   event.preventDefault();
   const id = $("#eventId").value;
+  const existing = state.events.find((entry) => entry.id === id);
   const payload = {
     id: id || createId("event"),
     title: $("#eventTitle").value.trim(),
     type: $("#eventType").value,
     day: getAbsoluteDayFromInputs("eventDay", "eventMonth", getCampaignYear(state.currentDay)),
     description: $("#eventDescription").value.trim(),
+    createdByUserId: existing?.createdByUserId || getActiveUserId() || "",
     createdAt: Date.now()
   };
   if (!payload.title) {
@@ -3926,11 +3971,6 @@ function populateStaticForms() {
 }
 
 function renderSettings() {
-  const repairedUsers = ensureCanonicalUsers(state.users);
-  if (JSON.stringify(repairedUsers) !== JSON.stringify(state.users)) {
-    state.users = repairedUsers;
-    saveState();
-  }
   $("#settingsCurrentBalance").textContent = formatCopper(getBalanceCopper());
   $("#settingsBalanceAction").value = "income";
   $("#startingBalance").value = "";
@@ -3952,6 +3992,7 @@ function applyBalanceAdjustment({ action, amountGp, label }) {
     amountCopper,
     sourceId: "",
     note: "Ajuste manual do saldo atual da base.",
+    createdByUserId: getActiveUserId() || "",
     createdAt: Date.now()
   });
   return true;
@@ -3973,7 +4014,7 @@ function saveFinanceBalance(event) {
   showToast("Saldo atual ajustado.");
 }
 
-function handleAccessSubmit(event) {
+async function handleAccessSubmit(event) {
   event.preventDefault();
   const name = $("#accessName").value.trim();
   const pin = $("#accessPin").value.trim();
@@ -3982,38 +4023,46 @@ function handleAccessSubmit(event) {
     return;
   }
 
-  state.users = ensureCanonicalUsers(state.users);
-  const normalizedName = normalizeAccessName(name);
-  const existing = state.users.find((user) => normalizeAccessName(user.name) === normalizedName);
-  if (existing) {
-    if (String(existing.pin || "") !== pin) {
+  if (isLocalDevelopmentHost()) {
+    const existing = state.users.find((user) => normalizeAccessName(user.name) === normalizeAccessName(name));
+    if (existing && String(existing.localPin || "") !== pin) {
       showToast("Nome ou PIN inválidos.");
       return;
     }
-    sessionUserId = existing.id;
-    state.activeUserId = existing.id;
+    const user = existing || normalizeUser({ id: createId("user"), name, role: userRoles.player, pin, createdAt: Date.now() });
+    if (!existing) state.users.push(user);
+    sessionUserId = user.id;
+    state.activeUserId = user.id;
     saveSession();
+    if (!existing) saveState();
     applyAuthState();
     render();
-    showToast(`Bem-vindo, ${existing.name}.`);
+    showToast(`Bem-vindo, ${user.name}.`);
     return;
   }
-
-  const nextUser = normalizeUser({
-    id: createId("user"),
-    name,
-    role: userRoles.player,
-    pin,
-    createdAt: Date.now()
-  });
-  state.users.push(nextUser);
-  sessionUserId = nextUser.id;
-  state.activeUserId = nextUser.id;
-  saveSession();
-  saveState();
-  applyAuthState();
-  render();
-  showToast(`Perfil criado: ${nextUser.name}.`);
+  try {
+    const response = await fetch(`${AUTH_API_BASE}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, pin })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.token || !result.user?.id) {
+      showToast(result.error || "Nome ou PIN inválidos.");
+      return;
+    }
+    sessionToken = result.token;
+    sessionUserId = result.user.id;
+    sessionExpiresAt = Number(result.expiresAt) || 0;
+    saveSession();
+    state = await loadSharedState();
+    state.activeUserId = sessionUserId;
+    applyAuthState();
+    render();
+    showToast(`Bem-vindo, ${result.user.name}.`);
+  } catch (error) {
+    showToast("Não foi possível alcançar a mesa. Tente novamente.");
+  }
 }
 
 function renderUsers() {
@@ -4021,7 +4070,6 @@ function renderUsers() {
   if (!list) {
     return;
   }
-  state.users = ensureCanonicalUsers(state.users);
   const users = [...state.users].sort((a, b) => {
     if (a.role === b.role) {
       return a.name.localeCompare(b.name, "pt-BR");
@@ -4035,7 +4083,7 @@ function renderUsers() {
             <strong>${escapeHtml(user.name)}</strong>
             <div class="chip-row">
               <span class="chip ${user.role === userRoles.admin ? "premium" : "income"}">${user.role === userRoles.admin ? "Mestre" : "Jogador"}</span>
-              <span class="chip">${user.pin ? "PIN definido" : "Sem PIN"}</span>
+              <span class="chip">PIN protegido</span>
               <span class="chip faith-chip">${getFaithPointsForUser(user.id)} PF</span>
             </div>
           </div>
@@ -4057,7 +4105,7 @@ function clearUserForm() {
   }
 }
 
-function saveUser(event) {
+async function saveUser(event) {
   event.preventDefault();
   if (!isAdmin()) {
     showToast("Somente o Mestre pode gerenciar usuários.");
@@ -4065,31 +4113,56 @@ function saveUser(event) {
   }
   const id = $("#userId").value;
   const payload = {
-    id: id || createId("user"),
+    id,
     name: $("#userName").value.trim(),
     role: $("#userRole").value === userRoles.admin ? userRoles.admin : userRoles.player,
-    pin: $("#userPin").value.trim(),
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    pin: $("#userPin").value.trim()
   };
   if (!payload.name) {
     showToast("Informe um nome para o usuário.");
     return;
   }
-  const existingIndex = state.users.findIndex((user) => user.id === id);
-  if (existingIndex >= 0) {
-    state.users[existingIndex] = { ...state.users[existingIndex], ...payload, createdAt: state.users[existingIndex].createdAt || Date.now(), updatedAt: Date.now() };
+  if (!isLocalDevelopmentHost()) {
+    try {
+      const response = await fetch(`${AUTH_API_BASE}/users`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showToast(result.error || "Não foi possível salvar o usuário.");
+        return;
+      }
+      state = await loadSharedState();
+      const savedUserId = result.user?.id || id;
+      setFaithPointsForUser(savedUserId, $("#userFaithPoints")?.value || 0, "Ajuste do Mestre");
+      saveState();
+    } catch (error) {
+      showToast("Não foi possível alcançar o servidor.");
+      return;
+    }
   } else {
-    state.users.push(payload);
+    const localId = id || createId("user");
+    const existingIndex = state.users.findIndex((user) => user.id === localId);
+    const existingUser = existingIndex >= 0 ? state.users[existingIndex] : null;
+    const localUser = normalizeUser({
+      ...payload,
+      pin: payload.pin || existingUser?.localPin || existingUser?.pin || "",
+      id: localId,
+      createdAt: existingUser?.createdAt || Date.now()
+    });
+    if (existingIndex >= 0) state.users[existingIndex] = localUser;
+    else state.users.push(localUser);
+    setFaithPointsForUser(localId, $("#userFaithPoints")?.value || 0, "Ajuste do Mestre");
+    saveState();
   }
-  setFaithPointsForUser(payload.id, $("#userFaithPoints")?.value || 0, "Ajuste do Mestre");
-  saveState();
   clearUserForm();
   render();
   showToast("Usuário salvo.");
 }
 
-function handleUserAction(event) {
+async function handleUserAction(event) {
   const button = event.target.closest("[data-action]");
   if (!button || !isAdmin()) {
     return;
@@ -4102,7 +4175,8 @@ function handleUserAction(event) {
     $("#userId").value = user.id;
     $("#userName").value = user.name;
     $("#userRole").value = user.role;
-    $("#userPin").value = user.pin || "";
+    $("#userPin").value = "";
+    $("#userPin").placeholder = "Deixe vazio para manter";
     const faithInput = $("#userFaithPoints");
     if (faithInput) {
       faithInput.value = Math.max(0, getFaithPointsForUser(user.id));
@@ -4110,6 +4184,26 @@ function handleUserAction(event) {
     $("#userManagementPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   if (button.dataset.action === "delete-user" && confirm(`Remover o usuário ${user.name}?`)) {
+    if (!isLocalDevelopmentHost()) {
+      try {
+        const response = await fetch(`${AUTH_API_BASE}/users`, {
+          method: "DELETE",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ id: user.id })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          showToast(result.error || "Não foi possível remover o usuário.");
+          return;
+        }
+        state = await loadSharedState();
+        render();
+        showToast("Usuário removido.");
+      } catch (error) {
+        showToast("Não foi possível alcançar o servidor.");
+      }
+      return;
+    }
     addDeletedRecord("user", user.id);
     state.users = state.users.filter((item) => item.id !== user.id);
     if (sessionUserId === user.id) {
