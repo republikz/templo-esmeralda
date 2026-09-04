@@ -93,6 +93,7 @@ export function sanitizeStateForClient(state) {
   delete next.activeUserId;
   delete next._baseRevision;
   delete next._changedFields;
+  delete next.npcRelations;
   return next;
 }
 

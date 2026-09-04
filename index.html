@@ -46,6 +46,22 @@
             <span aria-hidden="true">▤</span>
             <span class="nav-label">Jornada</span>
           </button>
+          <button class="nav-button" type="button" data-view-target="map">
+            <span aria-hidden="true"></span>
+            <span class="nav-label">Mapa da Base</span>
+          </button>
+          <button class="nav-button" type="button" data-view-target="missions">
+            <span aria-hidden="true"></span>
+            <span class="nav-label">Missões</span>
+          </button>
+          <button class="nav-button" type="button" data-view-target="timeline">
+            <span aria-hidden="true"></span>
+            <span class="nav-label">Linha do Tempo</span>
+          </button>
+          <button class="nav-button" type="button" data-view-target="trophies">
+            <span aria-hidden="true"></span>
+            <span class="nav-label">Troféus</span>
+          </button>
           <button class="nav-button" type="button" data-view-target="market">
             <span aria-hidden="true">✦</span>
             <span class="nav-label">Mercado</span>
@@ -112,6 +128,7 @@
                 <span class="chip" id="dashboardCalendarCount">0 registros</span>
               </div>
               <div class="calendar-mini" id="dashboardCalendarGrid"></div>
+              <div id="dashboardCalendarAgenda"></div>
             </section>
 
             <aside class="dashboard-side-stack">
@@ -332,16 +349,14 @@
             <section class="content-column">
               <div class="toolbar split">
                 <input id="npcSearch" type="search" placeholder="Buscar NPCs">
-                <select id="npcRoleFilter">
-                  <option value="all">Todas as funções</option>
-                </select>
-                <select id="npcSort">
+                <select id="npcSort" aria-label="Ordenar NPCs">
                   <option value="name">Nome</option>
                   <option value="role">Função</option>
                   <option value="impact">Impacto financeiro</option>
                   <option value="recent">Atualização</option>
                 </select>
               </div>
+              <div class="npc-disposition-filters" id="npcDispositionFilters" aria-label="Filtrar por disposição"></div>
               <div class="npc-grid" id="npcList"></div>
             </section>
           </div>
@@ -357,21 +372,25 @@
           <div class="finance-summary">
             <article class="metric large">
               <div class="metric-head">
-                <span>Saldo atual</span>
+                <span><i class="finance-symbol" aria-hidden="true"></i>Saldo atual</span>
                 <button class="button subtle small" id="toggleFinanceBalanceForm" type="button" aria-expanded="false">Editar</button>
               </div>
               <strong id="financeBalance">0 gp</strong>
             </article>
             <article class="metric large">
-              <span>Receitas pendentes</span>
+              <span><i class="finance-arrow" aria-hidden="true">↗</i>Receitas pendentes</span>
               <strong id="financeIncomeDue">0 gp</strong>
             </article>
             <article class="metric large">
-              <span>Despesas pendentes</span>
+              <span><i class="finance-arrow" aria-hidden="true">↘</i>Despesas pendentes</span>
               <strong id="financeExpenseDue">0 gp</strong>
             </article>
           </div>
 
+          <section class="finance-flow" aria-label="Fluxo recorrente">
+            <div><h2>Fluxo recorrente</h2><span class="muted">Equivalente a 30 dias · contratos ativos</span></div>
+            <dl><div><dt>Receita recorrente</dt><dd id="financeRecurringIncome"></dd></div><div><dt>Despesa recorrente</dt><dd id="financeRecurringExpense"></dd></div><div><dt>Saldo líquido</dt><dd id="financeRecurringNet"></dd></div></dl>
+          </section>
           <section class="panel finance-balance-panel" id="financeBalancePanel" hidden>
             <div class="section-header">
               <div>
@@ -486,17 +505,15 @@
               </div>
             </div>
             <form id="ledgerForm" class="inline-form">
-              <input id="ledgerName" placeholder="Descrição" required>
-              <select id="ledgerType">
+              <label>Descrição<input id="ledgerName" placeholder="Descrição" required></label>
+              <label>Tipo<select id="ledgerType">
                 <option value="income">Receita</option>
                 <option value="expense">Despesa</option>
-              </select>
-              <input id="ledgerAmount" type="number" min="0" step="0.1" placeholder="gp" required>
-              <span class="date-fields inline-date">
-                <input id="ledgerDay" type="number" min="1" max="72" step="1" placeholder="Dia" aria-label="Dia do movimento">
-                <select id="ledgerMonth" aria-label="Mês do movimento"></select>
-              </span>
-              <button class="button subtle" type="submit">Adicionar</button>
+              </select></label>
+              <label>Valor (gp)<input id="ledgerAmount" type="number" min="0" step="0.1" placeholder="gp" required></label>
+              <label>Dia<input id="ledgerDay" type="number" min="1" max="72" step="1" placeholder="Dia" aria-label="Dia do movimento"></label>
+              <label>Mês<select id="ledgerMonth" aria-label="Mês do movimento"></select></label>
+              <button class="button primary" type="submit">Adicionar</button>
             </form>
             <div class="table-wrap">
               <table>
@@ -720,11 +737,9 @@
             <div class="section-header">
               <div>
                 <p class="eyebrow">Diário da mesa</p>
-                <h2>Jornada</h2>
               </div>
               <button class="button primary" type="button" id="toggleJourneyComposer">Adicionar</button>
             </div>
-            <p class="muted">Guarde rostos, lugares, criaturas e sinais encontrados pelo caminho. Cada lembrança pode receber comentários dos heróis.</p>
           </section>
 
           <section class="panel form-panel journey-editor" id="journeyEditorPanel" hidden>
@@ -753,6 +768,36 @@
                     <input id="journeyLevel" maxlength="12" autocomplete="off" placeholder="Ex.: 7 ou ?">
                   </label>
                 </div>
+                <div class="form-row archive-fields">
+                  <label>
+                    Categoria
+                    <select id="journeyCategory">
+                      <option value="event">Acontecimento</option>
+                      <option value="location">Local</option>
+                      <option value="creature">Criatura</option>
+                      <option value="character">Personagem</option>
+                      <option value="faction">Facção</option>
+                      <option value="relic">Item / Relíquia</option>
+                    </select>
+                  </label>
+                  <label>
+                    Ameaça
+                    <input id="journeyThreat" maxlength="50" placeholder="Baixa, severa, desconhecida...">
+                  </label>
+                  <label>
+                    Região
+                    <input id="journeyRegion" maxlength="80" placeholder="Ex.: Montanha de Alytra">
+                  </label>
+                </div>
+                <label>
+                  Etiquetas
+                  <input id="journeyTags" maxlength="180" placeholder="ruínas, fadas, segredo">
+                </label>
+                <label>
+                  Referências cruzadas
+                  <select id="journeyReferences" multiple size="5" aria-describedby="journeyReferenceHelp"></select>
+                  <small id="journeyReferenceHelp">Selecione NPCs, salas, zonas, missões, registros ou troféus relacionados.</small>
+                </label>
                 <label>
                   Descrição
                   <textarea id="journeyDescription" rows="5" maxlength="1200" placeholder="O que foi visto, ouvido ou descoberto?"></textarea>
@@ -770,17 +815,16 @@
             <div class="section-header">
               <div>
                 <p class="eyebrow">Mural da aventura</p>
-                <h2>Colagem da Jornada</h2>
               </div>
               <span class="chip" id="journeyCount">0 lembranças</span>
             </div>
             <div class="toolbar split journey-toolbar">
               <input id="journeySearch" type="search" placeholder="Buscar na jornada">
-              <select id="journeySort">
-                <option value="name">Nome</option>
-                <option value="level">Nível</option>
-              </select>
+              <input id="journeyCategoryFilter" type="hidden" value="all">
+              <input id="journeySort" type="hidden" value="name">
+              <div class="journey-sort-controls" role="group" aria-label="Ordenação"><button type="button" data-journey-sort="name" aria-pressed="true">Nome</button><button type="button" data-journey-sort="level" aria-pressed="false">Nível</button></div>
             </div>
+            <div id="journeyCategoryChips" class="journey-category-chips" role="group" aria-label="Categorias"></div>
             <div class="journey-collage" id="journeyGallery"></div>
           </section>
 
@@ -790,6 +834,72 @@
               <div class="journey-detail" id="journeyDetail"></div>
             </section>
           </div>
+        </section>
+
+        <section class="view" id="view-map">
+          <section class="panel campaign-intro">
+            <div class="section-header">
+              <div><p class="eyebrow">Cartografia da casa</p></div>
+              <button class="button primary" id="newMapZone" type="button">Nova zona</button>
+            </div>
+            <p class="muted">Arraste sobre os quadrados para demarcar uma sala ou construção. Cada piso preserva suas próprias zonas.</p>
+          </section>
+          <section class="panel base-map-panel">
+            <div class="map-toolbar" id="mapFloorControls">
+              <div class="segmented" role="tablist" aria-label="Pisos da base">
+                <button type="button" data-floor="ground" class="active">Térreo</button>
+                <button type="button" data-floor="top">Topo</button>
+                <button type="button" data-floor="underground">Subterrâneo</button>
+              </div>
+              <div class="button-row compact"><button class="button ghost" id="mapZoomOut" type="button">−</button><button class="button ghost" id="mapZoomReset" type="button">100%</button><button class="button ghost" id="mapZoomIn" type="button">+</button></div>
+            </div>
+            <div class="map-legend" aria-label="Legenda do mapa">
+              <span class="map-legend-item room">Sala</span>
+              <span class="map-legend-item construction">Construção</span>
+              <span class="map-legend-help">Selecione uma área vazia arrastando sobre a grade.</span>
+            </div>
+            <div class="map-viewport" id="baseMapViewport">
+              <div class="base-map-canvas" id="baseMapCanvas" role="application" aria-label="Mapa interativo da base"></div>
+            </div>
+            <div class="map-zone-list" id="baseMapZoneList"></div>
+          </section>
+          <div class="journey-modal" id="mapZoneModal" hidden>
+            <button class="journey-modal-backdrop" type="button" data-action="close-map-zone" aria-label="Fechar zona"></button>
+            <section class="journey-modal-panel" aria-label="Detalhe da zona"><div id="mapZoneDetail"></div></section>
+          </div>
+        </section>
+
+        <section class="view" id="view-missions">
+          <section class="panel campaign-intro">
+            <div class="section-header"><div><p class="eyebrow">Chamados e segredos</p></div><button class="button primary" id="toggleMissionComposer" type="button">Adicionar</button></div>
+          </section>
+          <section class="panel form-panel" id="missionEditorPanel" hidden>
+            <form class="stacked-form" id="missionForm">
+              <input type="hidden" id="missionId">
+              <div class="form-row"><label>Tipo<select id="missionType"><option value="mission">Missão</option><option value="rumor">Rumor</option></select></label><label>Título<input id="missionTitle" maxlength="120" required></label></div>
+              <label>Descrição<textarea id="missionDescription" rows="5" maxlength="1600"></textarea></label>
+              <div class="form-row"><label>Estado<select id="missionStatus"><option value="available">Disponível</option><option value="active">Ativa</option><option value="completed">Concluída</option><option value="failed">Fracassada</option></select></label><label>Responsável<input id="missionAssignee" maxlength="80"></label><label>Região<input id="missionRegion" maxlength="80"></label></div>
+              <div class="form-row mission-rumor-fields"><label>Fonte do rumor<input id="missionSource" maxlength="100"></label><label>Confiabilidade<select id="missionReliability"><option value="uncertain">Incerto</option><option value="likely">Provável</option><option value="confirmed">Confirmado</option><option value="false">Falso</option></select></label><label>Prazo (dia absoluto)<input id="missionDueDay" type="number" min="1"></label></div>
+              <label>Etiquetas<input id="missionTags" maxlength="180" placeholder="facção, urgência, ruínas"></label>
+              <fieldset class="reference-field"><legend>Vínculos narrativos</legend><p>Conecte esta entrada a elementos já registrados na campanha.</p><select id="missionReferences" multiple hidden></select><div class="reference-picker" data-reference-picker="missionReferences"></div></fieldset>
+              <div class="button-row"><button class="button primary" type="submit">Salvar registro</button><button class="button ghost" id="cancelMissionEdit" type="button">Cancelar</button></div>
+            </form>
+          </section>
+          <section class="panel"><div class="toolbar split"><input id="missionSearch" type="search" placeholder="Buscar missões e rumores"><select id="missionTypeFilter"><option value="all">Todos os tipos</option><option value="mission">Missões</option><option value="rumor">Rumores</option></select><select id="missionStatusFilter"><option value="all">Todos os estados</option><option value="available">Disponíveis</option><option value="active">Ativas</option><option value="completed">Concluídas</option><option value="failed">Fracassadas</option></select></div><div class="mission-grid" id="missionList"></div></section>
+        </section>
+
+        <section class="view" id="view-timeline">
+          <section class="panel campaign-intro"><div class="section-header"><div><p class="eyebrow">Crônicas de Minimus Legio</p></div><button class="button primary" id="toggleTimelineComposer" type="button">Registrar</button></div></section>
+          <section class="panel form-panel" id="timelineEditorPanel" hidden><form class="stacked-form" id="timelineForm"><input type="hidden" id="timelineId"><div class="form-row"><label>Tipo<select id="timelineType"><option value="session">Sessão</option><option value="discovery">Descoberta</option><option value="decision">Decisão</option></select></label><label>Era<select id="timelineEra"><option value="1">1ª Era</option><option value="2">2ª Era</option><option value="3">3ª Era</option></select></label><label>Dia (opcional)<input id="timelineDay" type="number" min="1" max="72" step="1"><output id="timelineDayPreview" class="date-preview">Sem data definida</output></label><label>Mês<select id="timelineMonth"></select></label></div><label>Título<input id="timelineTitle" required maxlength="120"></label><label>Registro<textarea id="timelineDescription" rows="6" maxlength="1800"></textarea></label><fieldset class="reference-field"><legend>Vínculos narrativos</legend><p>Associe este marco a descobertas, personagens, salas ou outros registros.</p><select id="timelineReferences" multiple hidden></select><div class="reference-picker" data-reference-picker="timelineReferences"></div></fieldset><div class="button-row"><button class="button primary" type="submit">Salvar registro</button><button class="button ghost" id="cancelTimelineEdit" type="button">Cancelar</button></div></form></section>
+          <section class="panel"><div class="toolbar split"><input id="timelineSearch" type="search" placeholder="Buscar na linha do tempo"><select id="timelineEraFilter"><option value="all">Todas as eras</option><option value="1">1ª Era</option><option value="2">2ª Era</option><option value="3">3ª Era</option></select><select id="timelineTypeFilter"><option value="all">Todos os registros</option><option value="session">Sessões</option><option value="discovery">Descobertas</option><option value="decision">Decisões</option></select></div><div class="timeline-eras" id="timelineList"></div></section>
+          <dialog id="timelineEntryModal" class="timeline-entry-dialog"><div id="timelineEntryDetail"></div></dialog>
+        </section>
+
+        <section class="view" id="view-trophies">
+          <section class="panel campaign-intro"><div class="section-header"><div><p class="eyebrow">Salão da memória</p></div><button class="button primary" id="toggleTrophyComposer" type="button">Adicionar conquista</button></div><p class="muted">Conquistas que permanecerão gravadas nas muralhas da casa.</p></section>
+          <section class="panel form-panel" id="trophyEditorPanel" hidden data-admin-only="true"><form class="stacked-form" id="trophyForm"><input type="hidden" id="trophyId"><label>Imagem<input id="trophyImageUpload" type="file" accept="image/*"><input id="trophyImage" type="hidden"></label><div class="image-preview" id="trophyImagePreview"></div><div class="form-row"><label>Título<input id="trophyTitle" required maxlength="120"></label><label>Categoria<input id="trophyCategory" maxlength="60" placeholder="Vitória, relíquia, pacto..."></label><label>Raridade<select id="trophyRarity"><option value="notable">Notável</option><option value="epic">Épico</option><option value="legendary">Lendário</option></select></label><label>Dia (opcional)<input id="trophyDay" type="number" min="1" max="72" step="1"></label><label>Mês<select id="trophyMonth"></select></label></div><fieldset class="trophy-recipient-field"><legend>Conquista concedida a</legend><label class="checkbox-row"><input id="trophyAwardGroup" type="checkbox" checked>Minimus Legio (grupo todo)</label><div id="trophyRecipientOptions"></div></fieldset><label class="checkbox-row"><input id="trophyFeatured" type="checkbox"> Exibir como conquista em destaque</label><label>História<textarea id="trophyDescription" rows="6" maxlength="1800"></textarea></label><fieldset class="reference-field"><legend>Vínculos narrativos</legend><p>Mostre quais feitos, lugares ou personagens tornaram esta conquista possível.</p><select id="trophyReferences" multiple hidden></select><div class="reference-picker" data-reference-picker="trophyReferences"></div></fieldset><div class="button-row"><button class="button primary" type="submit">Guardar troféu</button><button class="button ghost" id="cancelTrophyEdit" type="button">Cancelar</button></div></form></section>
+          <section class="panel trophy-wall-panel"><div class="toolbar trophy-toolbar"><input id="trophySearch" type="search" placeholder="Buscar troféus"><div class="trophy-filter-chips" id="trophyRarityFilters" aria-label="Filtrar por raridade"><button class="active" type="button" data-rarity="all">Todos</button><button type="button" data-rarity="legendary">Lendário</button><button type="button" data-rarity="epic">Épico</button><button type="button" data-rarity="notable">Notável</button></div></div><div class="trophy-gallery" id="trophyList"></div></section>
+          <div class="journey-modal" id="trophyModal" hidden><button class="journey-modal-backdrop" type="button" data-action="close-trophy" aria-label="Fechar troféu"></button><section class="journey-modal-panel" aria-label="Detalhe do troféu"><div id="trophyDetail"></div></section></div>
         </section>
 
         <section class="view" id="view-market">
@@ -999,6 +1109,6 @@
       </section>
     </div>
 
-    <script src="app.js?v=32" defer></script>
+    <script src="app.js?v=36" defer></script>
   </body>
 </html>

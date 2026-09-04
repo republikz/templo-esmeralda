@@ -19,6 +19,10 @@ const viewTitles = {
   calendar: "Calendário",
   campfire: "Fogueira dos Heróis",
   journey: "Jornada",
+  map: "Mapa da Base",
+  missions: "Missões & Rumores",
+  timeline: "Linha do Tempo",
+  trophies: "Mural de Troféus",
   market: "Mercado Esmeralda",
   settings: "Configurações"
 };
@@ -71,6 +75,26 @@ const INVESTIGATION_BOARD_MAX_WIDTH = 5000;
 const INVESTIGATION_BOARD_MAX_HEIGHT = 4000;
 const INVESTIGATION_BOARD_MARGIN_X = 360;
 const INVESTIGATION_BOARD_MARGIN_Y = 300;
+const BASE_MAP_FLOORS = [
+  { id: "ground", name: "Térreo", image: "assets/maps/mapa-terreo.jpg", imageWidth: 1920, imageHeight: 1437 },
+  { id: "top", name: "Topo", image: "assets/maps/mapa-topo.jpg", imageWidth: 1918, imageHeight: 1437 },
+  { id: "underground", name: "Subterrâneo", image: "assets/maps/mapa-subterraneo.jpg", imageWidth: 1920, imageHeight: 1435 }
+];
+// Legacy coordinate space stays readable without rewriting saved zones.
+const BASE_MAP_COLUMNS = 48;
+const BASE_MAP_ROWS = 36;
+// The artwork has a 43.636px square grid; the bottom/right cells are cropped.
+const MAP_GRID_PITCH = 1920 / 44;
+const MAP_GRID_COLUMNS = 44;
+const MAP_GRID_ROWS = 33;
+const JOURNEY_CATEGORIES = {
+  event: "Acontecimento",
+  location: "Local",
+  creature: "Criatura",
+  character: "Personagem",
+  faction: "Facção",
+  relic: "Item / Relíquia"
+};
 
 let activeView = "dashboard";
 let catalog = [];
@@ -101,6 +125,15 @@ let investigationDragState = null;
 let investigationSuppressClick = false;
 let pendingInvestigationDeleteId = "";
 let investigationDragFrame = 0;
+let selectedMapFloorId = "ground";
+let selectedMapZoneId = "";
+let mapZoom = 1;
+let mapSelection = null;
+let selectedMissionId = "";
+let selectedTimelineId = "";
+let selectedTrophyId = "";
+let trophyRarityFilter = "all";
+let npcDispositionFilter = "all";
 
 function isLocalDevelopmentHost() {
   const host = window.location.hostname;
@@ -144,6 +177,11 @@ const renderCache = {
   campfireInvestigationModalHtml: { key: "", value: "" },
   journeyGalleryHtml: { key: "", value: "" },
   journeyDetailHtml: { key: "", value: "" },
+  baseMapHtml: { key: "", value: "" },
+  mapZoneListHtml: { key: "", value: "" },
+  missionsHtml: { key: "", value: "" },
+  timelineHtml: { key: "", value: "" },
+  trophiesHtml: { key: "", value: "" },
   marketCategoryHtml: { key: "", value: "" },
   marketStatusHtml: { key: "", value: "" },
   marketSectionHtml: {
@@ -189,6 +227,13 @@ document.addEventListener("DOMContentLoaded", () => {
   void init();
 });
 
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("#trophyRarityFilters [data-rarity]");
+  if (!button) return;
+  trophyRarityFilter = button.dataset.rarity || "all";
+  renderTrophies();
+});
+
 async function init() {
   const hashView = window.location.hash.replace("#", "");
   if (viewTitles[hashView]) {
@@ -197,7 +242,7 @@ async function init() {
   bindEvents();
   initializeDateSelects();
   initializeComposerState();
-  restoreSession();
+  restoreSession(false);
   state = await loadSharedState();
   restoreSession();
   populateStaticForms();
@@ -224,7 +269,7 @@ function isAuthenticated() {
 }
 
 function isAdmin() {
-  return isAuthenticated() && getActiveUser().role === userRoles.admin;
+  return getActiveUser()?.role === userRoles.admin;
 }
 
 function getFaithPointsForUser(userId) {
@@ -322,7 +367,12 @@ function bindEvents() {
   $("#clearNpcImage").addEventListener("click", clearNpcImage);
   $("#npcImageUpload").addEventListener("change", (event) => handleImageUpload(event, "npcImage", "npcImagePreview"));
   $("#npcSearch").addEventListener("input", refreshNpcs);
-  $("#npcRoleFilter").addEventListener("change", renderNpcs);
+  $("#npcDispositionFilters")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-disposition]");
+    if (!chip) return;
+    npcDispositionFilter = chip.dataset.disposition;
+    renderNpcs();
+  });
   $("#npcSort").addEventListener("change", renderNpcs);
   $("#npcList").addEventListener("click", handleNpcAction);
   $("#npcModal")?.addEventListener("click", handleNpcAction);
@@ -397,7 +447,14 @@ function bindEvents() {
   $("#cancelFinanceBalance").addEventListener("click", () => toggleFinanceBalanceEditor(false));
   $("#authForm").addEventListener("submit", handleAccessSubmit);
   $("#dashboardCalendarGrid")?.addEventListener("click", handleDashboardAction);
+  $("#dashboardCalendarAgenda")?.addEventListener("click", handleDashboardAction);
   $("#dashboardFaithPanel")?.addEventListener("click", handleFaithAction);
+  $("#dashboardHeroPanel")?.addEventListener("click", (event) => {
+    const badge = event.target.closest("[data-hero-trophy]");
+    if (!badge) return;
+    selectedTrophyId = badge.dataset.heroTrophy;
+    showView("trophies");
+  });
   $("#dashboardMarketList")?.addEventListener("click", handleDashboardAction);
   $("#dashboardJourneyList")?.addEventListener("click", handleDashboardAction);
   $("#dashboardJourneyCommentList")?.addEventListener("click", handleDashboardAction);
@@ -433,7 +490,16 @@ function bindEvents() {
   $("#journeyImageUpload")?.addEventListener("change", (event) => handleImageUpload(event, "journeyImage", "journeyImagePreview"));
   $("#clearJourneyImage")?.addEventListener("click", clearJourneyImage);
   $("#journeySearch")?.addEventListener("input", debounce(renderJourney, 80));
+  $("#journeyCategoryFilter")?.addEventListener("change", renderJourney);
   $("#journeySort")?.addEventListener("change", renderJourney);
+  $("#view-journey")?.addEventListener("click", event => {
+    const category = event.target.closest("[data-journey-category]");
+    const sort = event.target.closest("[data-journey-sort]");
+    if (!category && !sort) return;
+    if (category) $("#journeyCategoryFilter").value = category.dataset.journeyCategory;
+    if (sort) $("#journeySort").value = sort.dataset.journeySort;
+    renderJourney();
+  });
   $("#journeyGallery")?.addEventListener("click", handleJourneyAction);
   $("#journeyModal")?.addEventListener("click", handleJourneyAction);
   $("#journeyDetail")?.addEventListener("click", handleJourneyAction);
@@ -444,6 +510,66 @@ function bindEvents() {
   document.addEventListener("keydown", handleNpcKeydown);
   document.addEventListener("keydown", handleRoomUpgradeKeydown);
   document.addEventListener("keydown", handleInvestigationKeydown);
+
+  $("#mapFloorControls")?.addEventListener("click", handleMapControlAction);
+  $("#mapZoomIn")?.addEventListener("click", () => setMapZoom(mapZoom + 0.2));
+  $("#mapZoomOut")?.addEventListener("click", () => setMapZoom(mapZoom - 0.2));
+  $("#mapZoomReset")?.addEventListener("click", () => setMapZoom(1));
+  $("#baseMapCanvas")?.addEventListener("pointerdown", handleMapPointerDown);
+  $("#baseMapCanvas")?.addEventListener("pointermove", handleMapPointerMove);
+  $("#baseMapCanvas")?.addEventListener("pointerup", handleMapPointerUp);
+  $("#baseMapCanvas")?.addEventListener("pointercancel", handleMapPointerUp);
+  $("#baseMapCanvas")?.addEventListener("click", handleMapCanvasAction);
+  $("#baseMapZoneList")?.addEventListener("click", handleMapCanvasAction);
+  $("#newMapZone")?.addEventListener("click", () => openMapZoneModal("", { x: 0, y: 0, width: 1, height: 1 }));
+  $("#mapZoneModal")?.addEventListener("click", handleMapZoneModalAction);
+  $("#mapZoneDetail")?.addEventListener("submit", saveMapZone);
+
+  $("#toggleMissionComposer")?.addEventListener("click", () => toggleCampaignComposer("mission", true));
+  $("#missionForm")?.addEventListener("submit", saveMission);
+  $("#cancelMissionEdit")?.addEventListener("click", clearMissionForm);
+  $("#missionSearch")?.addEventListener("input", debounce(renderMissions, 80));
+  $("#missionTypeFilter")?.addEventListener("change", renderMissions);
+  $("#missionStatusFilter")?.addEventListener("change", renderMissions);
+  $("#missionList")?.addEventListener("click", handleMissionAction);
+
+  $("#toggleTimelineComposer")?.addEventListener("click", () => toggleCampaignComposer("timeline", true));
+  $("#timelineForm")?.addEventListener("submit", saveTimelineEntry);
+  $("#cancelTimelineEdit")?.addEventListener("click", clearTimelineForm);
+  $("#timelineSearch")?.addEventListener("input", debounce(renderTimeline, 80));
+  $("#timelineEraFilter")?.addEventListener("change", renderTimeline);
+  $("#timelineTypeFilter")?.addEventListener("change", renderTimeline);
+  $("#timelineList")?.addEventListener("click", handleTimelineAction);
+  $("#timelineEntryModal")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) { selectedTimelineId = ""; event.currentTarget.close(); }
+    else handleTimelineAction(event);
+  });
+  $("#timelineEntryModal")?.addEventListener("close", () => { selectedTimelineId = ""; });
+  $("#timelineDay")?.addEventListener("input", renderTimelineDayPreview);
+  $("#timelineMonth")?.addEventListener("change", renderTimelineDayPreview);
+
+  document.addEventListener("change", handleReferencePickerChange);
+  document.addEventListener("input", handleReferencePickerSearch);
+  $("#missionType")?.addEventListener("change", updateMissionFields);
+  document.addEventListener("click", event => {
+    const button = event.target.closest("[data-mission-ref-category], [data-mission-ref-remove]");
+    if (!button) return;
+    const picker = button.closest(".reference-picker");
+    if (button.hasAttribute("data-mission-ref-category")) picker.dataset.category = button.dataset.missionRefCategory;
+    else {
+      const option = [...$("#missionReferences").options].find(item => item.value === button.dataset.missionRefRemove);
+      if (option) option.selected = false;
+    }
+    renderMissionReferencePicker(picker, $("#missionReferences"));
+  });
+
+  $("#toggleTrophyComposer")?.addEventListener("click", () => toggleCampaignComposer("trophy", true));
+  $("#trophyForm")?.addEventListener("submit", saveTrophy);
+  $("#cancelTrophyEdit")?.addEventListener("click", clearTrophyForm);
+  $("#trophyImageUpload")?.addEventListener("change", (event) => handleImageUpload(event, "trophyImage", "trophyImagePreview"));
+  $("#trophySearch")?.addEventListener("input", debounce(renderTrophies, 80));
+  $("#trophyList")?.addEventListener("click", handleTrophyAction);
+  $("#trophyModal")?.addEventListener("click", handleTrophyAction);
 
   $("#settingsForm").addEventListener("submit", saveSettings);
   $("#exportData").addEventListener("click", exportData);
@@ -460,7 +586,9 @@ function initializeDateSelects() {
     "sourceStartMonth",
     "sourceLastMonth",
     "ledgerMonth",
-    "eventMonth"
+    "eventMonth",
+    "timelineMonth",
+    "trophyMonth"
   ].forEach((id) => {
     const select = $(`#${id}`);
     if (!select) {
@@ -558,6 +686,12 @@ async function loadCatalogOnMainThread() {
 
 function ensureCatalog() {
   return catalogLoaded ? Promise.resolve(true) : loadCatalog();
+}
+
+function createBaseMapState() {
+  return {
+    floors: BASE_MAP_FLOORS.map((floor) => ({ ...floor, columns: BASE_MAP_COLUMNS, rows: BASE_MAP_ROWS, zones: [] }))
+  };
 }
 
 function freshState() {
@@ -760,6 +894,10 @@ function freshState() {
       reads: [],
       entries: []
     },
+    baseMap: createBaseMapState(),
+    missions: [],
+    timeline: [],
+    trophies: [],
     market: {
       permanentCount: 14,
       consumableCount: 10,
@@ -806,6 +944,10 @@ function emptyState() {
       reads: [],
       entries: []
     },
+    baseMap: createBaseMapState(),
+    missions: [],
+    timeline: [],
+    trophies: [],
     market: {
       permanentCount: 14,
       consumableCount: 10,
@@ -841,7 +983,7 @@ async function loadSeedState() {
 
 async function loadSharedState() {
   const isLocal = isLocalDevelopmentHost();
-  const fallback = isLocal ? loadLocalState() : null;
+  const fallback = isLocal ? await loadLocalState() : null;
   if (!sessionToken && !isLocal) {
     return emptyState();
   }
@@ -881,7 +1023,14 @@ async function loadSharedState() {
   return fresh;
 }
 
-function loadLocalState() {
+async function loadLocalState() {
+  try {
+    await localCacheQueue;
+    const cached = await campaignCacheRequest("readonly", store => store.get("state"));
+    if (cached) return normalizeState(cached);
+  } catch (error) {
+    // Retain compatibility with older browser caches when IndexedDB is unavailable.
+  }
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) {
@@ -921,9 +1070,114 @@ function normalizeState(value) {
     autoProcessRecurring: data.autoProcessRecurring === true,
     campfire: normalizeCampfire(data.campfire || fallback.campfire, users),
     journey: normalizeJourney(data.journey || fallback.journey, users),
+    baseMap: normalizeBaseMap(data.baseMap || fallback.baseMap, users),
+    missions: Array.isArray(data.missions) ? data.missions.map((entry) => normalizeMission(entry, users)).filter(Boolean) : [],
+    timeline: Array.isArray(data.timeline) ? data.timeline.map((entry) => normalizeTimelineEntry(entry, users)).filter(Boolean) : [],
+    trophies: Array.isArray(data.trophies) ? data.trophies.map((entry) => normalizeTrophy(entry, users)).filter(Boolean) : [],
     market: normalizeMarket(data.market || fallback.market)
   };
   return repairNpcFinanceSources(normalized);
+}
+
+function normalizeReferences(references) {
+  const seen = new Set();
+  return (Array.isArray(references) ? references : [])
+    .map((reference) => {
+      if (typeof reference === "string") return reference.trim();
+      const type = String(reference?.type || "").trim();
+      const id = String(reference?.id || "").trim();
+      return type && id ? `${type}:${id}` : "";
+    })
+    .filter((reference) => {
+      if (!reference || !/^[^:]+:.+$/.test(reference) || seen.has(reference)) return false;
+      seen.add(reference);
+      return true;
+    });
+}
+
+function normalizeTags(value) {
+  if (Array.isArray(value)) return value.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 16);
+  return String(value || "").split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 16);
+}
+
+function creatorFields(record, users, fallbackName = "Mesa") {
+  const userId = String(record?.createdByUserId || "").trim();
+  const user = (users || []).find((candidate) => candidate.id === userId);
+  return {
+    createdByUserId: userId,
+    createdByName: String(record?.createdByName || "").trim() || user?.name || fallbackName,
+    createdAt: Number(record?.createdAt) || Date.now(),
+    updatedAt: Number(record?.updatedAt) || Number(record?.createdAt) || Date.now()
+  };
+}
+
+function normalizeBaseMap(value, users) {
+  const source = value && typeof value === "object" ? value : {};
+  const floorsById = new Map((Array.isArray(source.floors) ? source.floors : []).filter((floor) => floor?.id).map((floor) => [floor.id, floor]));
+  return {
+    floors: BASE_MAP_FLOORS.map((floor) => {
+      const candidate = floorsById.get(floor.id) || {};
+      return {
+        ...floor,
+        columns: MAP_GRID_COLUMNS,
+        rows: MAP_GRID_ROWS,
+        zones: (Array.isArray(candidate.zones) ? candidate.zones : []).map((zone) => normalizeMapZone(zone, floor.id, users)).filter(Boolean)
+      };
+    })
+  };
+}
+
+function normalizeMapZone(zone, floorId, users) {
+  if (!zone || typeof zone !== "object") return null;
+  const gridVersion = zone.gridVersion === 2 ? 2 : 1;
+  const columns = gridVersion === 2 ? MAP_GRID_COLUMNS : BASE_MAP_COLUMNS;
+  const rows = gridVersion === 2 ? MAP_GRID_ROWS : BASE_MAP_ROWS;
+  const x = Math.max(0, Math.min(columns - 1, Number.parseInt(zone.x, 10) || 0));
+  const y = Math.max(0, Math.min(rows - 1, Number.parseInt(zone.y, 10) || 0));
+  const width = Math.max(1, Math.min(columns - x, Number.parseInt(zone.width, 10) || 1));
+  const height = Math.max(1, Math.min(rows - y, Number.parseInt(zone.height, 10) || 1));
+  return {
+    id: String(zone.id || createId("map-zone")), floorId, gridVersion,
+    title: String(zone.title || "").trim() || "Zona sem nome",
+    kind: zone.kind === "room" ? "room" : "construction",
+    status: String(zone.status || "Planejada").trim(),
+    description: String(zone.description || "").trim(),
+    responsible: String(zone.responsible || "").trim(),
+    roomId: String(zone.roomId || "").trim(), x, y, width, height,
+    ...creatorFields(zone, users)
+  };
+}
+
+function normalizeMission(entry, users) {
+  if (!entry || typeof entry !== "object") return null;
+  const type = entry.type === "rumor" ? "rumor" : "mission";
+  const status = ["available", "active", "completed", "failed"].includes(entry.status) ? entry.status : "available";
+  const reliability = ["uncertain", "likely", "confirmed", "false"].includes(entry.reliability) ? entry.reliability : "uncertain";
+  return { id: String(entry.id || createId("mission")), type, status, reliability,
+    title: String(entry.title || "").trim() || (type === "rumor" ? "Rumor sem título" : "Missão sem título"),
+    description: String(entry.description || "").trim(), source: String(entry.source || "").trim(),
+    assignee: String(entry.assignee || "").trim(), region: String(entry.region || "").trim(),
+    dueDay: Math.max(0, Number.parseInt(entry.dueDay, 10) || 0), tags: normalizeTags(entry.tags), references: normalizeReferences(entry.references),
+    ...creatorFields(entry, users) };
+}
+
+function normalizeTimelineEntry(entry, users) {
+  if (!entry || typeof entry !== "object") return null;
+  const type = ["session", "discovery", "decision"].includes(entry.type) ? entry.type : "discovery";
+  return { id: String(entry.id || createId("timeline")), type, era: ["1", "2", "3"].includes(String(entry.era)) ? String(entry.era) : "1",
+    order: Number.isFinite(entry.order) ? entry.order : null,
+    title: String(entry.title || "").trim() || "Registro sem título", description: String(entry.description || "").trim(),
+    day: Math.max(0, Number.parseInt(entry.day, 10) || 0), references: normalizeReferences(entry.references), ...creatorFields(entry, users) };
+}
+
+function normalizeTrophy(entry, users) {
+  if (!entry || typeof entry !== "object") return null;
+  const rarity = ["legendary", "epic", "notable"].includes(entry.rarity) ? entry.rarity : "notable";
+  return { id: String(entry.id || createId("trophy")), title: String(entry.title || "").trim() || "Conquista sem título",
+    category: String(entry.category || "Conquista").trim(), rarity, featured: Boolean(entry.featured), image: entry.image || "", description: String(entry.description || "").trim(),
+    recipientHeroIds: Array.isArray(entry.recipientHeroIds) ? [...new Set(entry.recipientHeroIds.filter((id) => typeof id === "string"))] : [],
+    awardedToGroup: entry.awardedToGroup !== false,
+    day: Math.max(0, Number.parseInt(entry.day, 10) || 0), references: normalizeReferences(entry.references), ...creatorFields(entry, users) };
 }
 
 function hasMeaningfulState(value) {
@@ -1023,6 +1277,7 @@ function normalizeRoom(room) {
     type: room.type || "",
     status: room.status || "Ativa",
     image: room.image || "",
+    imageCrop: normalizePortraitCrop(room.imageCrop),
     bonus: room.bonus || "",
     usage: room.usage || "",
     description: room.description || "",
@@ -1043,6 +1298,7 @@ function normalizeNpc(npc) {
     id: npc.id || createId("npc"),
     name: npc.name || "NPC sem nome",
     image: npc.image || "",
+    imageCrop: normalizePortraitCrop(npc.imageCrop),
     role: npc.role || "",
     tags: npc.tags || "",
     summary: npc.summary || "",
@@ -1247,6 +1503,11 @@ function normalizeJourneyEntry(entry, userLookup) {
     level: normalizeJourneyLevel(entry?.level),
     image: entry?.image || "",
     description: String(entry?.description || "").trim(),
+    category: Object.prototype.hasOwnProperty.call(JOURNEY_CATEGORIES, entry?.category) ? entry.category : "event",
+    threat: String(entry?.threat || "").trim(),
+    region: String(entry?.region || "").trim(),
+    tags: normalizeTags(entry?.tags),
+    references: normalizeReferences(entry?.references),
     createdByUserId,
     createdByName: entry?.createdByName?.trim() || creator?.name || "Mesa",
     createdAt: Number(entry?.createdAt) || Date.now(),
@@ -1458,12 +1719,32 @@ function normalizeStockEntry(item) {
   };
 }
 
+let localCacheQueue = Promise.resolve();
+let localCacheWarningShown = false;
+function campaignCacheRequest(mode, action) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open("templo-esmeralda-cache", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("campaign");
+    open.onerror = () => reject(open.error);
+    open.onblocked = () => reject(new Error("Cache bloqueado por outra aba."));
+    open.onsuccess = () => {
+      const db = open.result;
+      const transaction = db.transaction("campaign", mode);
+      const request = action(transaction.objectStore("campaign"));
+      transaction.oncomplete = () => { db.close(); resolve(request.result); };
+      transaction.onabort = transaction.onerror = () => { db.close(); reject(transaction.error || request.error); };
+    };
+  });
+}
 function saveLocalState(nextState) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
-  } catch (error) {
-    showToast("O navegador não conseguiu guardar o cache local. Seus dados seguem no servidor.");
-  }
+  const snapshot = structuredClone(nextState);
+  localCacheQueue = localCacheQueue.then(() => campaignCacheRequest("readwrite", store => store.put(snapshot, "state"))).catch(() => {
+    if (!localCacheWarningShown) {
+      localCacheWarningShown = true;
+      showToast("Cache local indisponível. O salvamento no servidor será tentado separadamente; aguarde a confirmação de sincronização antes de sair.");
+    }
+  });
+  return localCacheQueue;
 }
 
 function getSavableStateSnapshot(nextState) {
@@ -1549,7 +1830,11 @@ function getChangedRecordsForSave(nextState) {
     journeyEntries: journeyChanges.content,
     journeyEntryContent: journeyChanges.content,
     journeyComments: journeyChanges.comments,
-    journeyReads: getChangedRecordIds(nextState.journey?.reads, baseline.journey?.reads)
+    journeyReads: getChangedRecordIds(nextState.journey?.reads, baseline.journey?.reads),
+    mapZones: getChangedRecordIds(nextState.baseMap?.floors?.flatMap((floor) => floor.zones || []), baseline.baseMap?.floors?.flatMap((floor) => floor.zones || [])),
+    missions: getChangedRecordIds(nextState.missions, baseline.missions),
+    timeline: getChangedRecordIds(nextState.timeline, baseline.timeline),
+    trophies: getChangedRecordIds(nextState.trophies, baseline.trophies)
   };
 }
 
@@ -1629,6 +1914,19 @@ function buildIncrementalSavePayload(nextState, changedFields, changedRecords) {
     entries: journeyEntries,
     reads: pickChangedRecords(nextState.journey?.reads, changedRecords.journeyReads)
   };
+  payload.baseMap = {
+    floors: (nextState.baseMap?.floors || []).map((floor) => ({
+      id: floor.id,
+      name: floor.name,
+      image: floor.image,
+      columns: floor.columns,
+      rows: floor.rows,
+      zones: pickChangedRecords(floor.zones, changedRecords.mapZones)
+    }))
+  };
+  payload.missions = pickChangedRecords(nextState.missions, changedRecords.missions);
+  payload.timeline = pickChangedRecords(nextState.timeline, changedRecords.timeline);
+  payload.trophies = pickChangedRecords(nextState.trophies, changedRecords.trophies);
   return payload;
 }
 
@@ -1637,8 +1935,15 @@ function saveState(nextState = state, options = {}) {
   nextState.updatedAt = Date.now();
   const changedFields = getChangedFieldsForSave(nextState);
   const changedRecords = getChangedRecordsForSave(nextState);
-  const payloadState = buildIncrementalSavePayload(nextState, changedFields, changedRecords);
-  saveLocalState(getSavableStateSnapshot(nextState));
+  const snapshot = getSavableStateSnapshot(nextState);
+  // The local PowerShell server is intentionally small and does not implement
+  // Cloudflare's field-aware merge. It must receive a complete snapshot so an
+  // incremental change can never replace the entire local campaign with a
+  // partial payload. Production keeps the incremental transport below.
+  const payloadState = isLocalDevelopmentHost()
+    ? snapshot
+    : buildIncrementalSavePayload(nextState, changedFields, changedRecords);
+  saveLocalState(snapshot);
   pendingPayload = JSON.stringify(payloadState);
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushStateSave, options.immediate ? 0 : 350);
@@ -1654,7 +1959,7 @@ async function flushStateSave() {
   const ok = await persistState(payload);
   saveInFlight = false;
   if (!ok) {
-    pendingPayload = payload;
+    pendingPayload = pendingPayload || payload;
     if (!lastSaveFailed) {
       showToast("Falha ao salvar no servidor. Vou tentar novamente em instantes.");
     }
@@ -1695,7 +2000,7 @@ function loadSession() {
   }
 }
 
-function restoreSession() {
+function restoreSession(usersLoaded = true) {
   const saved = loadSession();
   if (saved) {
     sessionUserId = saved.userId;
@@ -1710,7 +2015,7 @@ function restoreSession() {
     sessionUserId = user.id;
     state.activeUserId = user.id;
   } else {
-    if (!sessionToken || isLocalDevelopmentHost()) clearSession();
+    if (usersLoaded && (!sessionToken || isLocalDevelopmentHost())) clearSession();
   }
   authReady = true;
   applyAuthState();
@@ -1767,7 +2072,11 @@ async function persistState(payload) {
   try {
     const response = await fetch(STATE_API_URL, {
       method: "PUT",
-      headers: authHeaders({ "Content-Type": "application/json", "X-Base-Revision": String(lastSyncedRevision || 0) }),
+      headers: authHeaders({
+        "Content-Type": "application/json",
+        "X-Base-Revision": String(lastSyncedRevision || 0),
+        ...(isLocalDevelopmentHost() ? { "X-Local-State-Snapshot": "1" } : {})
+      }),
       keepalive: payload.length < 60000,
       body: payload
     });
@@ -1785,11 +2094,12 @@ async function persistState(payload) {
     if (text.trim()) {
       const serverState = normalizeState(JSON.parse(text));
       setSyncedStateBaseline(serverState);
-      if (!pendingPayload && !investigationDragState) {
+      if (!pendingPayload && !investigationDragState && !timelineDrag) {
         state = serverState;
         saveLocalState(state);
         applySessionToState();
         renderPermissions();
+        render();
       }
     }
     return true;
@@ -1825,7 +2135,7 @@ function startStateSync() {
 }
 
 function requestStateSync(options = {}) {
-  if (document.hidden || saveInFlight || pendingPayload || investigationDragState) {
+  if (document.hidden || saveInFlight || pendingPayload || investigationDragState || timelineDrag) {
     return;
   }
   const now = Date.now();
@@ -1837,7 +2147,7 @@ function requestStateSync(options = {}) {
 
 async function syncStateFromServer() {
   if (!sessionToken && !isLocalDevelopmentHost()) return;
-  if (syncInFlight || saveInFlight || pendingPayload || investigationDragState) {
+  if (syncInFlight || saveInFlight || pendingPayload || investigationDragState || timelineDrag) {
     return;
   }
   const now = Date.now();
@@ -1871,7 +2181,7 @@ async function syncStateFromServer() {
     const remote = normalizeState(JSON.parse(text));
     const localRevision = Number(state.revision) || 0;
     const remoteRevision = Number(remote.revision) || 0;
-    if (remoteRevision > localRevision && !investigationDragState) {
+    if (remoteRevision > localRevision && !investigationDragState && !timelineDrag) {
       state = remote;
       const upgradesApplied = applyCompletedRoomUpgrades({ silent: true });
       setSyncedStateBaseline(state);
@@ -1905,6 +2215,13 @@ function showView(view) {
     selectedJourneyEntryId = "";
     journeyModalEditId = "";
     document.body.classList.remove("journey-modal-open");
+  }
+  if (activeView !== "map") {
+    selectedMapZoneId = "";
+    mapSelection = null;
+  }
+  if (activeView !== "trophies") {
+    selectedTrophyId = "";
   }
   if (activeView !== "rooms") {
     closeRoomUpgradeModal({ silent: true });
@@ -1977,6 +2294,18 @@ function render() {
     case "journey":
       renderJourney();
       break;
+    case "map":
+      renderBaseMap();
+      break;
+    case "missions":
+      renderMissions();
+      break;
+    case "timeline":
+      renderTimeline();
+      break;
+    case "trophies":
+      renderTrophies();
+      break;
     case "market":
       renderMarket();
       break;
@@ -1991,8 +2320,9 @@ function render() {
 
 function renderPermissions() {
   const user = getActiveUser();
-  const admin = user.role === userRoles.admin;
-  const permissionKey = getCacheKey(sessionUserId || "", state.activeUserId || "", admin ? "admin" : "player", isAuthenticated() ? "auth" : "guest", activeView);
+  const authenticated = Boolean(user);
+  const admin = user?.role === userRoles.admin;
+  const permissionKey = getCacheKey(sessionUserId || "", state.activeUserId || "", admin ? "admin" : "player", authenticated ? "auth" : "guest", activeView);
   if (lastPermissionKey === permissionKey) {
     return;
   }
@@ -2002,11 +2332,11 @@ function renderPermissions() {
   const profileName = $("#activeProfileName");
   const roleBadge = $("#activeRoleBadge");
   if (profileName) {
-    profileName.textContent = isAuthenticated() ? user.name : "Aguardando acesso";
+    profileName.textContent = authenticated ? user.name : "Aguardando acesso";
   }
   if (roleBadge) {
-    roleBadge.textContent = isAuthenticated() ? (admin ? "Mestre" : "Jogador") : "Login necessário";
-    roleBadge.className = `role-badge ${!isAuthenticated() ? "player" : admin ? "admin" : "player"}`;
+    roleBadge.textContent = authenticated ? (admin ? "Mestre" : "Jogador") : "Login necessário";
+    roleBadge.className = `role-badge ${!authenticated ? "player" : admin ? "admin" : "player"}`;
   }
 
   const dayForm = $("#dayForm");
@@ -2051,6 +2381,10 @@ function renderPermissions() {
   const marketSettingsForm = $("#marketSettingsForm");
   if (marketSettingsForm) {
     marketSettingsForm.hidden = !admin;
+  }
+  const trophyToggle = $("#toggleTrophyComposer");
+  if (trophyToggle) {
+    trophyToggle.hidden = !admin;
   }
   ["settleAllDashboard", "refreshMarketDashboard", "settleAllFinance", "processRecurringCalendar"].forEach((id) => {
     const button = $(`#${id}`);
@@ -2127,7 +2461,7 @@ function renderDashboardCalendar() {
   const currentParts = getCalendarParts(state.currentDay);
   const currentMonth = currentParts.monthIndex;
   const currentYear = getCampaignYear(state.currentDay) + 1;
-  const entries = getCalendarEntries().filter((entry) => getCalendarParts(entry.day).monthIndex === currentMonth);
+  const entries = getCalendarEntries().filter((entry) => getCalendarParts(entry.day).monthIndex === currentMonth && getCampaignYear(entry.day) === getCampaignYear(state.currentDay));
   const entriesByDay = new Map();
   entries.forEach((entry) => {
     const dayOfMonth = getCalendarParts(entry.day).dayOfMonth;
@@ -2138,7 +2472,8 @@ function renderDashboardCalendar() {
   });
 
   $("#dashboardCalendarTitle").textContent = `${CALENDAR_MONTHS[currentMonth]} • ciclo ${currentYear}`;
-  $("#dashboardCalendarCount").textContent = `${entries.length} registro${entries.length === 1 ? "" : "s"}`;
+  $("#dashboardCalendarCount").textContent = `${entriesByDay.size} dia${entriesByDay.size === 1 ? "" : "s"} com registro`;
+  setHtmlIfChanged($("#dashboardCalendarAgenda"), [...entriesByDay].sort(([a], [b]) => a - b).map(([day, items]) => `<section class="dashboard-agenda-day"><button type="button" data-action="open-calendar-day" data-day="${items[0].day}">${escapeHtml(formatCalendarDate(items[0].day))}</button><ul>${items.map(item => `<li>${renderDashboardCalendarEntry(item)}<span>${escapeHtml(item.title)}${item.amountCopper ? ` · ${formatCopper(item.amountCopper)}` : ""}</span></li>`).join("")}</ul></section>`).join(""));
 
   const key = getCacheKey(state.revision, currentYear, currentMonth);
     const html = getCachedValue(renderCache.dashboardCalendarHtml, key, () => Array.from({ length: DAYS_PER_MONTH }, (_, index) => index + 1).map((day) => {
@@ -2164,7 +2499,7 @@ function renderDashboardCalendar() {
         <div class="calendar-mini-dots" aria-label="${escapeAttr(dayEntries.length ? `${dayEntries.length} registro${dayEntries.length === 1 ? "" : "s"}` : "Sem registros")}">
           ${visibleEntries.length
             ? visibleEntries.map(renderDashboardCalendarEntry).join("")
-            : `<span class="calendar-mini-empty" aria-hidden="true"></span>`}
+            : ""}
             ${extraCount > 0 ? `<span class="calendar-mini-more" title="${escapeAttr(`${extraCount} registros adicionais`)}">+${extraCount}</span>` : ""}
           </div>
         </button>
@@ -2376,6 +2711,7 @@ function saveRoom(event) {
     type: $("#roomType").value.trim(),
     status: $("#roomStatus").value,
     image: $("#roomImageData").value,
+    imageCrop: readPortraitCrop("roomImagePreview"),
     bonus: $("#roomBonus").value.trim(),
     usage: $("#roomUsage").value.trim(),
     description: $("#roomDescription").value.trim(),
@@ -2446,7 +2782,7 @@ function handleRoomAction(event) {
     $("#roomType").value = room.type;
     $("#roomStatus").value = room.status;
     $("#roomImageData").value = room.image || "";
-    renderImagePreview("roomImagePreview", room.image || "");
+    renderImagePreview("roomImagePreview", room.image || "", room.imageCrop);
     $("#roomBonus").value = room.bonus;
     $("#roomUsage").value = room.usage;
     $("#roomDescription").value = room.description;
@@ -2480,38 +2816,31 @@ function renderRooms() {
     })
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")));
 
-  const html = rooms.length
-    ? rooms.map((room) => `
-        <article class="room-card">
-          <header>
-            <div>
-              <h3>${escapeHtml(room.name)}</h3>
-              <div class="chip-row">
-                ${room.type ? `<span class="chip">${escapeHtml(room.type)}</span>` : ""}
-                <span class="chip">${escapeHtml(room.status)}</span>
-                ${room.activeUpgrade ? `<span class="chip warning">Upgrade em andamento</span>` : ""}
-                ${isRoomUpgradeCurrentApplied(room) ? `<span class="chip income">Upgrade concluído</span>` : ""}
-              </div>
-            </div>
-            <div class="card-actions">
-              ${canShowRoomUpgradeButton(room) ? `<button class="button subtle small" type="button" data-action="select-room-upgrade" data-id="${escapeAttr(room.id)}">${room.activeUpgrade ? "Ver upgrade" : "Upgrade"}</button>` : ""}
-              ${isAdmin() ? `
-                <button class="icon-button" type="button" title="Editar sala" data-action="edit-room" data-id="${escapeAttr(room.id)}">✎</button>
-                <button class="icon-button" type="button" title="Remover sala" data-action="delete-room" data-id="${escapeAttr(room.id)}">✕</button>
-              ` : ""}
-            </div>
-          </header>
-          ${room.image ? `<img class="room-image" src="${escapeAttr(room.image)}" alt="${escapeAttr(room.name)}" loading="lazy" decoding="async">` : ""}
-          ${room.description ? `<p class="room-description-text">${nl2br(room.description)}</p>` : ""}
-          ${room.bonus ? `<p class="room-bonus-text"><strong>Bônus:</strong> ${nl2br(room.bonus)}</p>` : ""}
-          ${room.usage ? `<p class="room-usage-text"><strong>Uso:</strong> ${nl2br(room.usage)}</p>` : ""}
-          ${hasRoomUpgradeConfigured(room) ? `<p class="room-upgrade-text"><strong>Upgrade:</strong> ${escapeHtml(formatCopper(room.upgradeCostCopper || 0))} · ${Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30)} dia(s)</p>` : ""}
-          ${room.activeUpgrade ? `<p class="room-upgrade-text warning"><strong>Conclusão prevista:</strong> ${escapeHtml(formatCalendarDate(room.activeUpgrade.finishDay))}</p>` : ""}
-        </article>
-      `).join("")
+  const html = rooms.length ? rooms.map(renderRoomCard).join("")
     : renderEmpty("Nenhuma sala encontrada", "A lista de salas não tem resultados para os filtros atuais.");
   setHtmlIfChanged($("#roomList"), html);
   renderRoomUpgradeModal();
+}
+
+function getRoomStatusTone(room) {
+  const status = String(room.status || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (/bloque|inativ|desativ|danific/.test(status)) return "blocked";
+  if (/constr|planej|obra/.test(status)) return "building";
+  if (/ativa|pronta|conclu/.test(status)) return "active";
+  return "neutral";
+}
+
+function renderRoomCard(room) {
+  const upgrade = room.activeUpgrade ? `Conclusão: ${formatCalendarDate(room.activeUpgrade.finishDay)}`
+    : isRoomUpgradeCurrentApplied(room) ? "Concluído"
+    : hasRoomUpgradeConfigured(room) ? `${formatCopper(room.upgradeCostCopper || 0)} · ${Math.max(1, Number.parseInt(room.upgradeDurationDays, 10) || 30)} dia(s)` : "Não cadastrado";
+  return `<article class="room-card room-status-${getRoomStatusTone(room)}">
+    <div class="room-thumbnail">${room.image ? `<img style="${portraitCropStyle(room.imageCrop)}" src="${escapeAttr(room.image)}" alt="${escapeAttr(room.name)}" width="140" height="140" loading="lazy" decoding="async">` : `<span class="room-thumbnail-placeholder" aria-hidden="true"></span>`}<span class="room-status-seal"><i aria-hidden="true"></i>${escapeHtml(room.status)}</span></div>
+    <div class="room-card-content"><header><div class="room-heading"><h3 title="${escapeAttr(room.name)}">${escapeHtml(room.name)}</h3>${room.type ? `<span class="room-type">${escapeHtml(room.type)}</span>` : ""}</div>${canShowRoomUpgradeButton(room) ? `<button class="button primary small room-upgrade-action" type="button" data-action="select-room-upgrade" data-id="${escapeAttr(room.id)}">${room.activeUpgrade ? "Ver upgrade" : "Upgrade"}</button>` : ""}</header>
+    <details class="room-overview"><summary><span class="room-description-preview">${escapeHtml(room.description || "Sem descrição cadastrada.")}</span><span class="room-read-more">Ver mais</span><span class="room-read-less">Ver menos</span></summary><div class="room-expanded-copy">${room.description ? `<p>${nl2br(room.description)}</p>` : ""}${room.bonus ? `<p><strong>Bônus:</strong> ${nl2br(room.bonus)}</p>` : ""}${room.usage ? `<p><strong>Uso:</strong> ${nl2br(room.usage)}</p>` : ""}${room.upgradeInfo ? `<p><strong>Upgrade:</strong> ${nl2br(room.upgradeInfo)}</p>` : ""}</div></details>
+    <dl class="room-stat-strip">${[["bonus", "Bônus", room.bonus || "Não cadastrado"], ["usage", "Uso", room.usage || "Não cadastrado"], ["upgrade", "Upgrade", upgrade]].map(([kind, label, value]) => `<div class="room-stat stat-${kind}"><dt><i aria-hidden="true"></i>${label}</dt><dd title="${escapeAttr(value)}">${escapeHtml(value)}</dd></div>`).join("")}</dl></div>
+    ${isAdmin() ? `<div class="room-maintenance-actions"><button class="icon-button" type="button" title="Editar sala" aria-label="Editar ${escapeAttr(room.name)}" data-action="edit-room" data-id="${escapeAttr(room.id)}">✎</button><button class="icon-button" type="button" title="Remover sala" aria-label="Remover ${escapeAttr(room.name)}" data-action="delete-room" data-id="${escapeAttr(room.id)}">×</button></div>` : ""}
+  </article>`;
 }
 
 function renderRoomUpgradeDetail(room) {
@@ -2633,6 +2962,7 @@ function saveNpc(event) {
     id: id || createId("npc"),
     name: $("#npcName").value.trim(),
     image: $("#npcImage").value.trim(),
+    imageCrop: readPortraitCrop("npcImagePreview"),
     role: $("#npcRole").value.trim(),
     tags: $("#npcTags").value.trim(),
     summary: $("#npcSummary").value.trim(),
@@ -2679,6 +3009,13 @@ function handleNpcAction(event) {
   const action = button.dataset.action;
   const id = button.dataset.id;
   const npc = state.npcs.find((item) => item.id === id);
+
+  if (action === "new-npc" && isAdmin()) {
+    clearNpcForm();
+    toggleComposer("npc", true);
+    $("#npcName").focus();
+    return;
+  }
 
   if (action === "select-npc" && npc) {
     selectedNpcId = id;
@@ -2733,7 +3070,7 @@ function handleNpcAction(event) {
 
 
 function renderNpcs() {
-  renderNpcRoleOptions();
+  renderNpcDispositionFilters();
   const list = $("#npcList");
   const detail = $("#npcDetail");
   const modal = $("#npcModal");
@@ -2741,7 +3078,7 @@ function renderNpcs() {
     return;
   }
   const query = ($("#npcSearch")?.value || "").trim().toLowerCase();
-  const roleFilter = $("#npcRoleFilter")?.value || "all";
+  const roleFilter = npcDispositionFilter;
   const sort = $("#npcSort")?.value || "name";
   if (selectedNpcId && !state.npcs.some((npc) => npc.id === selectedNpcId)) {
     selectedNpcId = "";
@@ -2750,7 +3087,7 @@ function renderNpcs() {
   const key = getCacheKey(state.revision, query, roleFilter, sort, selectedNpcId, npcModalEditId, isAdmin());
   let npcs = getCachedValue(renderCache.npcsHtml, key, () => state.npcs.filter((npc) => {
     const haystack = `${npc.name} ${npc.role} ${npc.tags} ${npc.summary} ${npc.description}`.toLowerCase();
-    return (!query || haystack.includes(query)) && (roleFilter === "all" || npc.role === roleFilter);
+    return (!query || haystack.includes(query)) && (roleFilter === "all" || getNpcDisposition(npc).key === roleFilter);
   }));
 
   npcs = [...npcs].sort((a, b) => {
@@ -2769,7 +3106,7 @@ function renderNpcs() {
   const html = npcs.length
     ? npcs.map(renderNpcCard).join("")
     : renderEmpty("Nenhum NPC encontrado", "A lista de NPCs não tem resultados para os filtros atuais.");
-  setHtmlIfChanged(list, html);
+  setHtmlIfChanged(list, html + (isAdmin() ? `<button class="npc-new-face" type="button" data-action="new-npc"><span aria-hidden="true">+</span><span>Novo rosto na base</span></button>` : ""));
   const selectedNpc = selectedNpcId ? state.npcs.find((npc) => npc.id === selectedNpcId) : null;
   const detailKey = getCacheKey(state.revision, selectedNpc?.id || "none", selectedNpc?.updatedAt || 0, npcModalEditId, isAdmin());
   const detailHtml = getCachedValue(renderCache.npcDetailHtml, detailKey, () => renderNpcDetail(selectedNpc));
@@ -2778,32 +3115,33 @@ function renderNpcs() {
   document.body.classList.toggle("npc-modal-open", Boolean(selectedNpc));
 }
 
-function renderNpcRoleOptions() {
-  const select = $("#npcRoleFilter");
-  if (!select) {
-    return;
-  }
-  const current = select.value || "all";
-  const roles = unique(state.npcs.map((npc) => npc.role).filter(Boolean)).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  select.innerHTML = `<option value="all">Todas as funções</option>${roles.map((role) => `<option value="${escapeAttr(role)}">${escapeHtml(role)}</option>`).join("")}`;
-  select.value = roles.includes(current) ? current : "all";
+function getNpcDisposition(npc) {
+  const label = String(npc.tags || "").split(",").map((tag) => tag.trim()).find(Boolean) || "Sem disposição";
+  const key = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+  const colors = { aliado: "#46c9a0", parente: "#81b8e3", funcionario: "#d5b16a", criancas: "#be9dde", neutro: "#d5b16a", hostil: "#e58372" };
+  return { key, label, color: colors[key] || "#9aa8ad" };
+}
+
+function renderNpcDispositionFilters() {
+  const container = $("#npcDispositionFilters");
+  if (!container) return;
+  const categories = new Map(state.npcs.map((npc) => { const value = getNpcDisposition(npc); return [value.key, value]; }));
+  if (npcDispositionFilter !== "all" && !categories.has(npcDispositionFilter)) npcDispositionFilter = "all";
+  const options = [{ key: "all", label: "Todos", color: "transparent" }, ...[...categories.values()].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))];
+  setHtmlIfChanged(container, options.map((item) => `<button type="button" data-disposition="${escapeAttr(item.key)}" aria-pressed="${npcDispositionFilter === item.key}" class="${npcDispositionFilter === item.key ? "active" : ""}" style="--disposition-color:${item.color}">${item.key === "all" ? "" : '<i aria-hidden="true"></i>'}${escapeHtml(item.label)}</button>`).join(""));
 }
 
 function renderNpcCard(npc) {
-  const initials = getInitials(npc.name);
-  return `
-    <article class="npc-card">
-      <button class="npc-card-open" type="button" data-action="select-npc" data-id="${escapeAttr(npc.id)}">
-        <span class="npc-portrait">
-          ${npc.image ? `<img src="${escapeAttr(npc.image)}" alt="${escapeAttr(npc.name)}" loading="lazy" decoding="async">` : `<span>${escapeHtml(initials)}</span>`}
-        </span>
-        <span class="npc-card-title">${escapeHtml(npc.name)}</span>
-        <span class="npc-meta">${escapeHtml(npc.role || "Sem função")}</span>
-        ${npc.tags ? `<span class="npc-card-tags">${npc.tags.split(",").slice(0, 3).map((tag) => `<span class="chip">${escapeHtml(tag.trim())}</span>`).join("")}</span>` : ""}
-      </button>
-      ${isAdmin() ? `<button class="icon-button npc-card-delete" type="button" title="Remover NPC" data-action="delete-npc" data-id="${escapeAttr(npc.id)}">✕</button>` : ""}
-    </article>
-  `;
+  const disposition = getNpcDisposition(npc);
+  return `<article class="npc-card" style="--disposition-color:${disposition.color}">
+    <button class="npc-card-open" type="button" data-action="select-npc" data-id="${escapeAttr(npc.id)}">
+      <span class="npc-portrait">${npc.image ? `<img style="${portraitCropStyle(npc.imageCrop)}" src="${escapeAttr(npc.image)}" alt="" width="320" height="280" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(npc.name))}</span>`}
+        <span class="npc-disposition-seal"><i aria-hidden="true"></i>${escapeHtml(disposition.label)}</span>
+      </span>
+      <span class="npc-card-copy"><span class="npc-card-title">${escapeHtml(npc.name)}</span><span class="npc-meta">${escapeHtml(npc.role || "Sem função")}</span>${npc.summary ? `<span class="npc-card-summary">${escapeHtml(npc.summary)}</span>` : ""}</span>
+    </button>
+    ${isAdmin() ? `<div class="npc-card-actions"><button class="icon-button" type="button" title="Editar NPC" aria-label="Editar ${escapeAttr(npc.name)}" data-action="edit-npc" data-id="${escapeAttr(npc.id)}">✎</button><button class="icon-button" type="button" title="Remover NPC" aria-label="Remover ${escapeAttr(npc.name)}" data-action="delete-npc" data-id="${escapeAttr(npc.id)}">×</button></div>` : ""}
+  </article>`;
 }
 
 function renderNpcDetail(npc) {
@@ -2867,7 +3205,7 @@ function renderNpcEditForm(npc) {
           <input id="npcModalImage" type="hidden" value="${escapeAttr(npc.image || "")}">
         </label>
         <div class="image-preview" id="npcModalImagePreview">
-          ${npc.image ? `<img src="${escapeAttr(npc.image)}" alt="${escapeAttr(npc.name)}" loading="lazy" decoding="async">` : ""}
+          ${renderPortraitEditor(npc.image, npc.imageCrop)}
         </div>
         <div class="form-row">
           <label>
@@ -2943,6 +3281,7 @@ function saveNpcModalEdit(event) {
     ...npc,
     name,
     image: $("#npcModalImage")?.value || "",
+    imageCrop: readPortraitCrop("npcModalImagePreview"),
     role: event.target.elements.role?.value.trim() || "",
     tags: event.target.elements.tags?.value.trim() || "",
     summary: event.target.elements.summary?.value.trim() || "",
@@ -3002,6 +3341,15 @@ function syncNpcFinanceSource(npc) {
   }
 }
 
+function getRecurringFlow(sources) {
+  const totals = { income: 0, expense: 0 };
+  for (const source of sources) {
+    if (!source.active || !Object.hasOwn(totals, source.type)) continue;
+    totals[source.type] += (Number(source.amountCopper) || 0) * 30 / Math.max(1, Number(source.intervalDays) || 30);
+  }
+  return { income: Math.round(totals.income), expense: Math.round(totals.expense), net: Math.round(totals.income - totals.expense) };
+}
+
 function renderFinance() {
   $("#financeBalance").textContent = formatCopper(getBalanceCopper());
   $("#financeBalanceInput").value = "";
@@ -3010,6 +3358,10 @@ function renderFinance() {
   const totals = getDueTotals(due);
   $("#financeIncomeDue").textContent = formatCopper(totals.income);
   $("#financeExpenseDue").textContent = formatCopper(totals.expense);
+  const flow = getRecurringFlow(state.financeSources);
+  $("#financeRecurringIncome").textContent = `+${formatCopper(flow.income)}`;
+  $("#financeRecurringExpense").textContent = `−${formatCopper(flow.expense)}`;
+  $("#financeRecurringNet").textContent = `${flow.net < 0 ? "−" : "+"}${formatCopper(Math.abs(flow.net))}`;
   setDateInputs("ledgerDay", "ledgerMonth", state.currentDay);
 
   const sourceKey = getCacheKey(state.revision, isAdmin());
@@ -3230,15 +3582,15 @@ function renderSourceCard(source) {
   const due = getDueForSource(source);
   const nextDay = due.nextDueDayAfter || getNextDueDayForSource(source);
   return `
-    <article class="source-card">
+    <article class="source-card source-${source.type === "income" ? "income" : "expense"}">
       <header>
         <div>
           <h3>${escapeHtml(source.name)}</h3>
           <div class="source-meta">
-            <span>${source.kindLabel || getKindLabel(source.kind)}</span>
+            <span>${escapeHtml(source.kindLabel || getKindLabel(source.kind))}</span>
             <span class="type-${source.type}">${source.type === "income" ? "Receita" : "Despesa"}</span>
             <span>${formatCopper(source.amountCopper)} / ${source.intervalDays} dias</span>
-            <span>${source.active ? "Ativa" : "Inativa"}</span>
+            <span class="source-status ${source.active ? "is-active" : ""}">${source.active ? "Ativa" : "Inativa"}</span>
           </div>
         </div>
         ${isAdmin() ? `
@@ -3249,10 +3601,9 @@ function renderSourceCard(source) {
         ` : ""}
       </header>
       ${source.note ? `<p>${escapeHtml(source.note)}</p>` : ""}
-      <div class="chip-row">
-        <span class="chip">Início ${formatCalendarDate(source.startDay || 1)}</span>
-        <span class="chip">Último ${source.lastProcessedDay > 0 ? formatCalendarDate(source.lastProcessedDay) : "nenhum"}</span>
-        <span class="chip ${due.cycles ? "warn" : ""}">Próximo ${formatCalendarDate(nextDay)}</span>
+      <div class="source-dates">
+        <small>Início ${formatCalendarDate(source.startDay || 1)} · Último ${source.lastProcessedDay > 0 ? formatCalendarDate(source.lastProcessedDay) : "nenhum"}</small>
+        ${source.active ? `<span class="source-next">Próxima cobrança · ${formatCalendarDate(nextDay)}</span>` : `<span class="muted">Cobrança pausada</span>`}
       </div>
     </article>
   `;
@@ -3294,7 +3645,7 @@ function renderLedgerTable() {
         <td>${formatCalendarDate(entry.day)}</td>
         <td>${escapeHtml(entry.name)}</td>
         <td class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</td>
-        <td>${formatCopper(entry.amountCopper)}</td>
+        <td class="ledger-amount type-${entry.type === "income" ? "income" : "expense"}"><span aria-hidden="true">${entry.type === "income" ? "↗" : "↘"}</span> ${entry.type === "income" ? "+" : "−"}${formatCopper(entry.amountCopper)}</td>
         <td><button class="icon-button" type="button" title="Remover movimento" data-action="delete-ledger" data-id="${escapeAttr(entry.id)}">✕</button></td>
       </tr>
     `);
@@ -4498,6 +4849,16 @@ function getAbsoluteDayFromInputs(dayInputId, monthInputId, yearIndex = 0) {
   return yearIndex * DAYS_PER_YEAR + monthIndex * DAYS_PER_MONTH + dayOfMonth;
 }
 
+function setCampaignRecordDate(prefix, day = 0) {
+  setDateInputs(`${prefix}Day`, `${prefix}Month`, day || state.currentDay);
+  if (!day) $(`#${prefix}Day`).value = "";
+}
+
+function readCampaignRecordDate(prefix, previousDay = 0) {
+  if (!$(`#${prefix}Day`).value) return 0;
+  return getAbsoluteDayFromInputs(`${prefix}Day`, `${prefix}Month`, getCampaignYear(previousDay || state.currentDay));
+}
+
 async function handleImageUpload(event, hiddenInputId, previewId) {
   const file = event.target.files?.[0];
   if (!file) {
@@ -4509,7 +4870,7 @@ async function handleImageUpload(event, hiddenInputId, previewId) {
     return;
   }
   try {
-    const dataUrl = await readImageAsDataUrl(file);
+    const dataUrl = await readImageAsDataUrl(file, { preserveTransparency: hiddenInputId === "trophyImage" });
     $(`#${hiddenInputId}`).value = dataUrl;
     renderImagePreview(previewId, dataUrl);
     showToast("Imagem carregada.");
@@ -4518,7 +4879,7 @@ async function handleImageUpload(event, hiddenInputId, previewId) {
   }
 }
 
-function readImageAsDataUrl(file) {
+function readImageAsDataUrl(file, { preserveTransparency = false } = {}) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
@@ -4535,13 +4896,16 @@ function readImageAsDataUrl(file) {
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(image.width * scale));
         canvas.height = Math.max(1, Math.round(image.height * scale));
-        const context = canvas.getContext("2d", { alpha: false });
-        context.fillStyle = "#10130f";
-        context.fillRect(0, 0, canvas.width, canvas.height);
+        const keepAlpha = preserveTransparency && file.type === "image/png";
+        const context = canvas.getContext("2d", { alpha: keepAlpha });
+        if (!keepAlpha) {
+          context.fillStyle = "#10130f";
+          context.fillRect(0, 0, canvas.width, canvas.height);
+        }
         context.imageSmoothingEnabled = true;
         context.imageSmoothingQuality = "high";
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.84));
+        resolve(keepAlpha ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.84));
       };
       image.src = reader.result;
     };
@@ -4549,9 +4913,43 @@ function readImageAsDataUrl(file) {
   });
 }
 
-function renderImagePreview(previewId, dataUrl) {
+function normalizePortraitCrop(value) {
+  const finite = (number, fallback, min, max) => Number.isFinite(Number(number)) ? Math.min(max, Math.max(min, Number(number))) : fallback;
+  return { x: finite(value?.x, 50, 0, 100), y: finite(value?.y, 50, 0, 100), zoom: finite(value?.zoom, 1, 1, 3) };
+}
+
+function portraitCropStyle(value) {
+  const crop = normalizePortraitCrop(value);
+  return `object-position:${crop.x}% ${crop.y}%;transform:scale(${crop.zoom});transform-origin:${crop.x}% ${crop.y}%`;
+}
+
+function readPortraitCrop(previewId) {
+  const preview = document.getElementById(previewId);
+  const values = {};
+  preview?.querySelectorAll("[data-crop-field]").forEach((input) => { values[input.dataset.cropField] = Number(input.value); });
+  return normalizePortraitCrop(values);
+}
+
+function renderPortraitEditor(image, value) {
+  if (!image) return "<span>Nenhuma imagem selecionada</span>";
+  const crop = normalizePortraitCrop(value);
+  return `<div class="portrait-crop-editor"><div class="portrait-crop-window"><img src="${escapeAttr(image)}" alt="Prévia do enquadramento" style="${portraitCropStyle(crop)}"></div><div class="portrait-crop-controls">${[["x", "Horizontal", 0, 100, 1], ["y", "Vertical", 0, 100, 1], ["zoom", "Zoom", 1, 3, 0.05]].map(([key, label, min, max, step]) => `<label>${label}<input type="range" data-crop-field="${key}" min="${min}" max="${max}" step="${step}" value="${crop[key]}"></label>`).join("")}</div></div>`;
+}
+
+document.addEventListener("input", (event) => {
+  if (!event.target.matches("[data-crop-field]")) return;
+  const preview = event.target.closest(".image-preview");
+  const image = preview?.querySelector(".portrait-crop-window img");
+  if (image) image.style.cssText = portraitCropStyle(readPortraitCrop(preview.id));
+});
+
+function renderImagePreview(previewId, dataUrl, crop) {
   const preview = $(`#${previewId}`);
   if (!preview) {
+    return;
+  }
+  if (["roomImagePreview", "npcImagePreview", "npcModalImagePreview"].includes(previewId)) {
+    preview.innerHTML = renderPortraitEditor(dataUrl, crop);
     return;
   }
   preview.innerHTML = dataUrl
@@ -4696,6 +5094,12 @@ function showToast(message) {
   }, 3200);
 }
 
+function renderDashboardDateGroups(items, dateKey, dateLabel, renderItem) {
+  const groups = new Map();
+  items.forEach(item => { const key = dateKey(item); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); });
+  return [...groups.values()].map(group => `<section class="dashboard-date-group"><h3>${escapeHtml(dateLabel(group[0]))}</h3>${group.map(renderItem).join("")}</section>`).join("");
+}
+
 function renderDashboard() {
   renderDashboardHero();
   renderDashboardFaith();
@@ -4710,12 +5114,13 @@ function renderDashboard() {
   setHtmlIfChanged($("#dashboardMarketList"), marketHtml);
   const recent = [...state.ledger].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
   const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(state.revision, recent.length, "dashboard-ledger"), () => recent.length
-    ? recent.map((entry) => `<article class="ledger-item"><strong>${escapeHtml(entry.name)}</strong><p>${formatCalendarDate(entry.day)} &middot; <span class="type-${entry.type}">${entry.type === "income" ? "Receita" : "Despesa"}</span> &middot; ${formatCopper(entry.amountCopper)}</p></article>`).join("")
+    ? renderDashboardDateGroups(recent, entry => entry.day, entry => formatCalendarDate(entry.day), entry => `<article class="dashboard-ledger-row ${entry.type === "income" ? "income" : "expense"}"><strong>${escapeHtml(entry.name)}</strong><span>${entry.type === "income" ? "↗ +" : "↘ −"}${formatCopper(entry.amountCopper)}</span></article>`)
     : renderEmpty("Sem movimentos", "Os registros do tesouro ainda não receberam movimentos."));
   setHtmlIfChanged($("#recentLedger"), recentHtml);
 }
 
 function renderDashboardHero() {
+  dashboardGoalObserver.disconnect();
   const panel = $("#dashboardHeroPanel");
   if (!panel) return;
   const hero = getCampfireHeroForUser(getActiveUserId());
@@ -4728,11 +5133,17 @@ function renderDashboardHero() {
   const goalsHtml = ["short", "medium", "long"].map((category) => {
     const goals = visibleGoals.filter((item) => item.category === category);
     const goalList = goals.length
-      ? `<ul>${goals.map((goal) => `<li>${escapeHtml(goal.text)}${goal.secret ? " <em>Secreto</em>" : ""}</li>`).join("")}</ul>`
+      ? `<ul>${goals.map((goal) => `<li class="${goal.secret ? "goal-is-secret" : ""}"><span class="dashboard-goal-text">${escapeHtml(goal.text)}</span><button type="button" class="dashboard-goal-toggle" aria-expanded="false" hidden>Ver mais</button>${goal.secret ? `<span class="goal-secret-lock" role="img" aria-label="Objetivo secreto" title="Objetivo secreto"></span>` : ""}</li>`).join("")}</ul>`
       : `<p>Sem objetivo visível.</p>`;
     return `<article class="dash-goal goal-${category}"><strong>${escapeHtml(campfireGoalCategories[category])}</strong>${goalList}</article>`;
   }).join("");
-  const heroKey = getCacheKey(state.revision, hero.id, hero.updatedAt, visibleGoals.length);
+  const trophies = state.trophies
+    .filter((item) => item.awardedToGroup !== false || item.recipientHeroIds?.includes(hero.id))
+    .sort((a, b) => Number(a.awardedToGroup !== false) - Number(b.awardedToGroup !== false)
+      || (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+      || a.id.localeCompare(b.id))
+    .slice(0, 4);
+  const heroKey = getCacheKey(state.revision, hero.id, hero.updatedAt, visibleGoals.length, trophies.map((item) => [item.id, item.title, item.image, item.rarity]));
   const html = getCachedValue(renderCache.dashboardHeroHtml, heroKey, () => `
     <div class="dashboard-hero-portrait ${hero.image ? "has-image" : ""}">
       ${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" width="360" height="480" loading="eager" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}
@@ -4748,11 +5159,29 @@ function renderDashboardHero() {
             ${hero.level ? `<span>${escapeHtml(hero.level)}</span>` : ""}
           </div>` : ""}
         </div>
+ ${trophies.length ? `<div class="hero-trophy-badges" aria-label="Conquistas do herói">${trophies.map((item) => `<button type="button" class="hero-trophy-badge rarity-${escapeAttr(item.rarity)}" data-hero-trophy="${escapeAttr(item.id)}" title="${escapeAttr(item.title)}" aria-label="Ver conquista: ${escapeAttr(item.title)}">${item.image ? `<img src="${escapeAttr(item.image)}" alt="" width="64" height="64" loading="lazy" decoding="async">` : `<span class="hero-trophy-icon" aria-hidden="true"></span>`}</button>`).join("")}</div>` : ""}
       </header>
     </div>
     <div class="dash-goal-grid dashboard-hero-goals">${goalsHtml}</div>`);
   setHtmlIfChanged(panel, html);
+  panel.querySelectorAll(".dashboard-goal-text").forEach(text => dashboardGoalObserver.observe(text));
 }
+
+const dashboardGoalObserver = new ResizeObserver(entries => {
+  for (const { target } of entries) {
+    const button = target.nextElementSibling;
+    const limit = parseFloat(getComputedStyle(target).lineHeight) * 3;
+    button.hidden = target.scrollHeight <= limit + 1;
+  }
+});
+document.addEventListener("click", event => {
+  const button = event.target.closest(".dashboard-goal-toggle");
+  if (!button) return;
+  const open = button.getAttribute("aria-expanded") !== "true";
+  button.setAttribute("aria-expanded", String(open));
+  button.textContent = open ? "Ver menos" : "Ver mais";
+  button.previousElementSibling.classList.toggle("is-expanded", open);
+});
 
 function renderDashboardMarketItem(item) {
   const icon = getDashboardMarketIcon(item);
@@ -4897,7 +5326,7 @@ function renderDashboardJourney() {
     .slice(0, 4);
   const key = getCacheKey(state.revision, entries.map((entry) => `${entry.id}:${entry.createdAt}:${entry.updatedAt}`).join(","));
   const html = getCachedValue(renderCache.dashboardJourneyHtml, key, () => entries.length
-    ? entries.map((entry) => renderDashboardJourneyCard(entry, { showUnread: false })).join("")
+    ? renderDashboardDateGroups(entries, entry => new Date(Number(entry.createdAt) || 0).toLocaleDateString("pt-BR"), entry => new Date(Number(entry.createdAt) || 0).toLocaleDateString("pt-BR", { day:"2-digit", month:"long", year:"numeric" }), entry => renderDashboardJourneyCard(entry, { showUnread: false }))
     : renderEmpty("Jornada vazia", "As novas lembranças da mesa aparecerão aqui."));
   setHtmlIfChanged(list, html);
 
@@ -4913,7 +5342,7 @@ function renderDashboardJourney() {
   );
   const commentsHtml = getCachedValue(renderCache.dashboardJourneyCommentsHtml, commentsKey, () => unreadEntries.length
     ? unreadEntries.map(({ entry }) => renderDashboardJourneyCard(entry)).join("")
-    : renderEmpty("Tudo lido", "Nenhum novo comentário espera por você na Jornada."));
+    : `<div class="dashboard-all-read"><span aria-hidden="true">✓</span><div><strong>Tudo lido</strong><p>Nenhum novo comentário na Jornada.</p></div></div>`);
   setHtmlIfChanged(commentList, commentsHtml);
 }
 
@@ -4924,7 +5353,6 @@ function renderDashboardJourneyCard(entry, options = {}) {
     : "";
   return `
     <button class="dashboard-journey-card ${unreadCount ? "has-unread" : ""}" type="button" data-action="open-journey-entry" data-id="${escapeAttr(entry.id)}">
-      <time datetime="${escapeAttr(new Date(Number(entry.createdAt) || Date.now()).toISOString())}">${formatJournalDate(entry.createdAt)}</time>
       <span class="dashboard-journey-memory">${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}</span>
       <span class="dashboard-journey-copy"><strong>${escapeHtml(entry.title)}</strong><small>Nível ${escapeHtml(entry.level)}</small><p>${escapeHtml(String(entry.description || "Sem descrição.").slice(0, 150))}</p></span>
       ${unreadBadge}
@@ -4994,7 +5422,11 @@ function renderJourney() {
   if (!gallery || !detail || !modal) {
     return;
   }
+  const journeyReferences = $("#journeyReferences");
+  if (journeyReferences && !journeyReferences.options.length) journeyReferences.innerHTML = getCampaignReferenceOptions();
   const entries = getFilteredJourneyEntries();
+  setHtmlIfChanged($("#journeyCategoryChips"), [["all", "Todos"], ...Object.entries(JOURNEY_CATEGORIES)].map(([key, label]) => `<button type="button" class="journey-filter category-${key}" data-journey-category="${key}" aria-pressed="${$("#journeyCategoryFilter").value === key}"><i class="journey-category-icon" aria-hidden="true"></i>${escapeHtml(label)}</button>`).join(""));
+  $$("[data-journey-sort]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.journeySort === $("#journeySort").value)));
   if (count) {
     count.textContent = `${entries.length} lembrança${entries.length === 1 ? "" : "s"}`;
   }
@@ -5013,7 +5445,7 @@ function renderJourney() {
     journeyModalEditId = "";
     journeyCommentEditId = "";
   }
-  const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeySort")?.value || "name", selectedJourneyEntryId, journeyModalEditId, journeyCommentEditId, getActiveUserId(), isAdmin());
+  const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeyCategoryFilter")?.value || "all", $("#journeySort")?.value || "name", selectedJourneyEntryId, journeyModalEditId, journeyCommentEditId, getActiveUserId(), isAdmin());
   const galleryHtml = getCachedValue(renderCache.journeyGalleryHtml, key, () => entries.length
     ? entries.map(renderJourneyCard).join("")
     : renderEmpty("Jornada vazia", "Adicione uma imagem, um nome e uma descrição para começar o diário da mesa."));
@@ -5030,10 +5462,11 @@ function renderJourney() {
 function getFilteredJourneyEntries() {
   const query = ($("#journeySearch")?.value || "").trim().toLowerCase();
   const sort = $("#journeySort")?.value || "name";
+  const category = $("#journeyCategoryFilter")?.value || "all";
   const entries = state.journey.entries.filter((entry) => {
     const comments = entry.comments.map((comment) => `${comment.text} ${comment.heroName} ${comment.userName}`).join(" ");
-    const haystack = `${entry.title} ${entry.level} ${entry.description} ${comments}`.toLowerCase();
-    return !query || haystack.includes(query);
+    const haystack = `${entry.title} ${entry.level} ${entry.description} ${entry.category} ${entry.region} ${entry.threat} ${(entry.tags || []).join(" ")} ${comments}`.toLowerCase();
+    return (!query || haystack.includes(query)) && (category === "all" || entry.category === category);
   });
   return [...entries].sort((a, b) => {
     if (sort === "level") {
@@ -5065,14 +5498,16 @@ function renderJourneyCard(entry) {
   const canRemove = canManageJourneyEntry(entry);
   const unreadCount = getUnreadJourneyComments(entry).length;
   return `
-    <article class="journey-card ${active} ${unreadCount ? "has-unread" : ""}">
+    <article class="journey-card category-${Object.hasOwn(JOURNEY_CATEGORIES, entry.category) ? entry.category : "event"} ${active} ${unreadCount ? "has-unread" : ""}">
       <button class="journey-card-open" type="button" data-action="select-journey" data-id="${escapeAttr(entry.id)}">
         ${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}
-        <span class="journey-card-title">${escapeHtml(entry.title)}</span>
-        <span class="journey-level">Nível ${escapeHtml(entry.level)}</span>
-        ${unreadCount ? `<em class="journey-unread-badge">${unreadCount} ${unreadCount === 1 ? "comentário novo" : "comentários novos"}</em>` : ""}
+        <span class="journey-photo-caption"><span class="journey-card-title">${escapeHtml(entry.title)}</span><span class="journey-photo-meta">
+        <span class="journey-level">Nível ${escapeHtml(entry.level || "?")}</span>
+        <span class="journey-category"><i class="journey-category-icon" aria-hidden="true"></i>${escapeHtml(JOURNEY_CATEGORIES[entry.category] || "Acontecimento")}</span>
+        </span></span>
+        ${entry.comments?.length ? `<span class="journey-comment-count" aria-label="${entry.comments.length} comentários${unreadCount ? `, ${unreadCount} novos` : ""}" title="${entry.comments.length} comentários${unreadCount ? ` · ${unreadCount} novos` : ""}"><i aria-hidden="true"></i>${entry.comments.length}${unreadCount ? `<b aria-hidden="true">•</b>` : ""}</span>` : ""}
       </button>
-      ${canRemove ? `<button class="icon-button journey-card-delete" type="button" title="Remover lembrança" data-action="delete-journey" data-id="${escapeAttr(entry.id)}">✕</button>` : ""}
+      ${canRemove ? `<div class="journey-card-actions"><button class="icon-button" type="button" title="Editar lembrança" data-action="edit-journey" data-id="${escapeAttr(entry.id)}">✎</button><button class="icon-button" type="button" title="Remover lembrança" data-action="delete-journey" data-id="${escapeAttr(entry.id)}">✕</button></div>` : ""}
     </article>
   `;
 }
@@ -5100,6 +5535,9 @@ function renderJourneyDetail(entry) {
           <h3>${escapeHtml(entry.title)}</h3>
           <div class="chip-row compact">
             <span class="chip">Nível ${escapeHtml(entry.level)}</span>
+            <span class="chip">${escapeHtml(JOURNEY_CATEGORIES[entry.category] || entry.category || "Acontecimento")}</span>
+            ${entry.threat ? `<span class="chip">Ameaça ${escapeHtml(entry.threat)}</span>` : ""}
+            ${entry.region ? `<span class="chip">${escapeHtml(entry.region)}</span>` : ""}
             <span class="chip">${escapeHtml(entry.createdByName)}</span>
           </div>
         </div>
@@ -5111,6 +5549,8 @@ function renderJourneyDetail(entry) {
       </header>
       ${entry.image ? `<img class="journey-detail-image" src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : ""}
       <p class="journey-description">${entry.description ? nl2br(entry.description) : "Nenhuma descrição foi registrada."}</p>
+      ${entry.tags?.length ? `<div class="chip-row">${entry.tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+      ${renderReferenceChips(entry.references || [])}
       <section class="journey-comments">
         <div class="section-header floating lower">
           <div>
@@ -5159,6 +5599,13 @@ function renderJourneyEditForm(entry) {
             <input name="level" maxlength="12" autocomplete="off" value="${escapeAttr(entry.level)}">
           </label>
         </div>
+        <div class="form-row">
+          <label>Categoria<select name="category">${Object.entries(JOURNEY_CATEGORIES).map(([key,label]) => `<option value="${key}"${entry.category === key ? " selected" : ""}>${label}</option>`).join("")}</select></label>
+          <label>Ameaça<input name="threat" maxlength="40" value="${escapeAttr(entry.threat || "")}"></label>
+          <label>Região<input name="region" maxlength="60" value="${escapeAttr(entry.region || "")}"></label>
+        </div>
+        <label>Etiquetas (separadas por vírgula)<input name="tags" maxlength="160" value="${escapeAttr((entry.tags || []).join(", "))}"></label>
+        <label>Referências cruzadas<select name="references" multiple size="5">${getCampaignReferenceOptions(entry.references || [])}</select></label>
         <label>
           Descrição
           <textarea name="description" rows="6" maxlength="1200">${escapeHtml(entry.description || "")}</textarea>
@@ -5229,6 +5676,11 @@ function saveJourneyEntry(event) {
     level: normalizeJourneyLevel($("#journeyLevel").value),
     image: $("#journeyImage").value || "",
     description: $("#journeyDescription").value.trim(),
+    category: $("#journeyCategory")?.value || "event",
+    threat: $("#journeyThreat")?.value.trim() || "",
+    region: $("#journeyRegion")?.value.trim() || "",
+    tags: normalizeTags($("#journeyTags")?.value || ""),
+    references: getSelectedOptions($("#journeyReferences")),
     createdByUserId: existing?.createdByUserId || user.id,
     createdByName: existing?.createdByName || user.name,
     createdAt: existing?.createdAt || Date.now(),
@@ -5358,6 +5810,11 @@ function saveJourneyModalEdit(event) {
     level: normalizeJourneyLevel(event.target.elements.level?.value),
     image: $("#journeyModalImage")?.value || "",
     description: event.target.elements.description?.value.trim() || "",
+    category: event.target.elements.category?.value || entry.category || "event",
+    threat: event.target.elements.threat?.value.trim() || "",
+    region: event.target.elements.region?.value.trim() || "",
+    tags: normalizeTags(event.target.elements.tags?.value || ""),
+    references: getSelectedOptions(event.target.elements.references),
     updatedAt: Date.now()
   };
   journeyModalEditId = "";
@@ -5447,6 +5904,11 @@ function loadJourneyEntry(id) {
   $("#journeyLevel").value = entry.level;
   $("#journeyImage").value = entry.image || "";
   $("#journeyDescription").value = entry.description || "";
+  $("#journeyCategory").value = entry.category || "event";
+  $("#journeyThreat").value = entry.threat || "";
+  $("#journeyRegion").value = entry.region || "";
+  $("#journeyTags").value = (entry.tags || []).join(", ");
+  $("#journeyReferences").innerHTML = getCampaignReferenceOptions(entry.references || []);
   $("#journeyFormTitle").textContent = "Editar lembrança";
   $("#journeyImageUpload").value = "";
   renderImagePreview("journeyImagePreview", entry.image || "");
@@ -5461,6 +5923,11 @@ function clearJourneyForm(options = {}) {
   $("#journeyImage").value = "";
   $("#journeyImageUpload").value = "";
   $("#journeyDescription").value = "";
+  $("#journeyCategory").value = "event";
+  $("#journeyThreat").value = "";
+  $("#journeyRegion").value = "";
+  $("#journeyTags").value = "";
+  $("#journeyReferences").innerHTML = getCampaignReferenceOptions();
   $("#journeyFormTitle").textContent = "Nova lembrança";
   renderImagePreview("journeyImagePreview", "");
   if (!options.keepOpen) {
@@ -6696,3 +7163,538 @@ function handleCampfireAction(event) {
   }
 }
 
+// Campaign expansion: all records remain small, independently mergeable entities.
+function getCampaignReferenceOptions(selected = []) {
+  const selectedIds = new Set(selected);
+  return getCampaignReferenceRecords().map((item) => `<option value="${escapeAttr(item.id)}"${selectedIds.has(item.id) ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("");
+}
+
+function getCampaignReferenceRecords() {
+  const mapZones = (state.baseMap?.floors || []).flatMap((floor) =>
+    (floor.zones || []).map((zone) => ({ id: `zone:${floor.id}:${zone.id}`, group: "Mapa da Base", label: `${floor.name} · ${zone.title}` }))
+  );
+  const investigationNotes = (state.campfire?.investigationBoard?.notes || []).map((note) => ({
+    id: `board:${note.id}`,
+    group: "Quadro de Investigação",
+    label: note.title
+  }));
+  return [
+    ...state.journey.entries.map((item) => ({ id: `journey:${item.id}`, group: "Jornada", label: item.title })),
+    ...state.npcs.map((item) => ({ id: `npc:${item.id}`, group: "NPCs", label: item.name })),
+    ...state.rooms.map((item) => ({ id: `room:${item.id}`, group: "Salas", label: item.name })),
+    ...state.missions.map((item) => ({ id: `mission:${item.id}`, group: "Missões e Rumores", label: `${item.type === "rumor" ? "Rumor" : "Missão"} · ${item.title}` })),
+    ...state.timeline.map((item) => ({ id: `timeline:${item.id}`, group: "Linha do Tempo", label: item.title })),
+    ...state.trophies.map((item) => ({ id: `trophy:${item.id}`, group: "Troféus", label: item.title })),
+    ...mapZones,
+    ...investigationNotes
+  ];
+}
+
+function renderReferencePicker(selectOrId) {
+  const select = typeof selectOrId === "string" ? $(`#${selectOrId}`) : selectOrId;
+  if (!select?.id) return;
+  const picker = document.querySelector(`[data-reference-picker="${select.id}"]`);
+  if (!picker) return;
+  if (select.id === "missionReferences") {
+    picker.dataset.category = "";
+    picker.dataset.query = "";
+    renderMissionReferencePicker(picker, select);
+    return;
+  }
+  const selected = new Set(getSelectedOptions(select));
+  const groups = new Map();
+  getCampaignReferenceRecords().forEach((record) => {
+    if (!groups.has(record.group)) groups.set(record.group, []);
+    groups.get(record.group).push(record);
+  });
+  const selectedLabels = getCampaignReferenceRecords().filter((record) => selected.has(record.id));
+  picker.innerHTML = `<div class="reference-selection-summary">${selectedLabels.length ? `<strong>${selectedLabels.length} vínculo${selectedLabels.length === 1 ? "" : "s"}</strong>${selectedLabels.map((item) => `<span>${escapeHtml(item.label)}</span>`).join("")}` : `<span>Nenhum vínculo selecionado</span>`}</div><input class="reference-search" type="search" data-reference-search="${escapeAttr(select.id)}" placeholder="Buscar personagem, lugar ou registro"><div class="reference-groups">${[...groups.entries()].map(([group, records]) => `<details><summary>${escapeHtml(group)} <span>${records.filter((item) => selected.has(item.id)).length || ""}</span></summary><div>${records.map((record) => `<label data-reference-label="${escapeAttr(`${group} ${record.label}`.toLocaleLowerCase("pt-BR"))}"><input type="checkbox" data-reference-select="${escapeAttr(select.id)}" value="${escapeAttr(record.id)}"${selected.has(record.id) ? " checked" : ""}><span>${escapeHtml(record.label)}</span></label>`).join("")}</div></details>`).join("")}</div>`;
+}
+
+function renderMissionReferencePicker(picker, select) {
+  const records = getCampaignReferenceRecords();
+  const selected = new Set(getSelectedOptions(select));
+  const query = picker.dataset.query || "";
+  const category = picker.dataset.category || "";
+  const activeSearch = picker.querySelector("input[type=search]") === document.activeElement;
+  const matches = records.filter(record => (!category || record.group === category) && (!query || `${record.group} ${record.label}`.toLocaleLowerCase("pt-BR").includes(query)));
+  picker.innerHTML = `<div class="mission-reference-toolbar"><input class="reference-search" type="search" aria-label="Buscar vínculos narrativos" data-reference-search="missionReferences" placeholder="Buscar vínculo..." value="${escapeAttr(query)}"><div class="mission-reference-categories" role="group" aria-label="Categorias de vínculo">${["", ...new Set(records.map(record => record.group))].map(group => `<button type="button" data-mission-ref-category="${escapeAttr(group)}" aria-pressed="${category === group}">${escapeHtml(group || "Todos")}</button>`).join("")}</div></div><div class="mission-reference-selected">${[...selected].map(id => `<button type="button" data-mission-ref-remove="${escapeAttr(id)}" title="Remover vínculo">${escapeHtml(records.find(record => record.id === id)?.label || "Registro indisponível")} <span aria-hidden="true">×</span></button>`).join("")}</div><div class="mission-reference-results">${matches.slice(0, 50).map(record => `<label><input type="checkbox" data-reference-select="missionReferences" value="${escapeAttr(record.id)}"${selected.has(record.id) ? " checked" : ""}><span>${escapeHtml(record.label)}<small>${escapeHtml(record.group)}</small></span></label>`).join("") || `<p>Nenhum registro encontrado.</p>`}</div>${matches.length > 50 ? `<small class="muted">${matches.length} resultados. Refine a busca para encontrar outros registros.</small>` : ""}`;
+  if (activeSearch) picker.querySelector("input[type=search]").focus();
+}
+
+function handleReferencePickerChange(event) {
+  const checkbox = event.target.closest("[data-reference-select]");
+  if (!checkbox) return;
+  const select = $(`#${checkbox.dataset.referenceSelect}`);
+  const option = [...(select?.options || [])].find((item) => item.value === checkbox.value);
+  if (option) option.selected = checkbox.checked;
+  if (select?.id === "missionReferences") { renderMissionReferencePicker(checkbox.closest(".reference-picker"), select); return; }
+  renderReferencePicker(select);
+}
+
+function handleReferencePickerSearch(event) {
+  const input = event.target.closest("[data-reference-search]");
+  if (!input) return;
+  const picker = input.closest(".reference-picker");
+  if (input.dataset.referenceSearch === "missionReferences") { picker.dataset.query = input.value.toLocaleLowerCase("pt-BR"); renderMissionReferencePicker(picker, $("#missionReferences")); return; }
+  const query = input.value.trim().toLocaleLowerCase("pt-BR");
+  picker?.querySelectorAll(".reference-groups details").forEach((details) => {
+    let visible = 0;
+    details.querySelectorAll("[data-reference-label]").forEach((label) => {
+      const matches = !query || label.dataset.referenceLabel.includes(query);
+      label.hidden = !matches;
+      if (matches) visible += 1;
+    });
+    details.hidden = visible === 0;
+    if (query && visible) details.open = true;
+  });
+}
+
+function getSelectedOptions(select) {
+  return select ? [...select.selectedOptions].map((option) => option.value).filter(Boolean) : [];
+}
+
+function getActorMetadata() {
+  const user = getActiveUser();
+  const hero = user ? getCampfireHeroForUser(user.id) : null;
+  return {
+    createdByUserId: user?.id || "",
+    createdByName: user?.name || "Mesa",
+    createdByHeroId: hero?.id || "",
+    createdByHeroName: hero?.characterName || ""
+  };
+}
+
+function renderReferenceChips(references = []) {
+  if (!references.length) return "";
+  const records = new Map(getCampaignReferenceRecords().map((record) => [record.id, record]));
+  return `<div class="reference-chip-row" aria-label="Vínculos narrativos">${references.map((reference) => { const record = records.get(reference); return `<button class="reference-chip" type="button" data-action="open-reference" data-reference="${escapeAttr(reference)}"><small>${escapeHtml(record?.group || "Referência")}</small><span>${escapeHtml(record?.label || "Registro indisponível")}</span></button>`; }).join("")}</div>`;
+}
+
+function openCampaignReference(reference) {
+  const [kind, id] = String(reference || "").split(":");
+  if (!id) return;
+  if (kind === "journey") {
+    selectedJourneyEntryId = id;
+    journeyModalEditId = "";
+    showView("journey");
+    return;
+  }
+  if (kind === "npc") {
+    selectedNpcId = id;
+    showView("npcs");
+    return;
+  }
+  if (kind === "room") return showView("rooms");
+  if (kind === "mission") {
+    selectedMissionId = id;
+    return showView("missions");
+  }
+  if (kind === "timeline") {
+    selectedTimelineId = id;
+    return showView("timeline");
+  }
+  if (kind === "trophy") {
+    selectedTrophyId = id;
+    return showView("trophies");
+  }
+  if (kind === "zone") {
+    const [, floorId, zoneId] = String(reference || "").split(":");
+    const floor = state.baseMap?.floors?.find((item) => item.id === floorId);
+    if (!floor?.zones?.some((zone) => zone.id === zoneId)) return;
+    selectedMapFloorId = floorId;
+    selectedMapZoneId = zoneId;
+    showView("map");
+    openMapZoneModal(zoneId);
+    return;
+  }
+  if (kind === "board") {
+    const note = state.campfire?.investigationBoard?.notes?.find((item) => item.id === id);
+    if (!note) return;
+    showView("campfire");
+    openInvestigationNoteModal(id);
+  }
+}
+
+function renderBaseMap() {
+  const canvas = $("#baseMapCanvas");
+  const list = $("#baseMapZoneList");
+  if (!canvas || !list) return;
+  const floor = state.baseMap.floors.find((item) => item.id === selectedMapFloorId) || state.baseMap.floors[0];
+  if (!floor) return;
+  selectedMapFloorId = floor.id;
+  const floorArt = BASE_MAP_FLOORS.find((item) => item.id === floor.id) || BASE_MAP_FLOORS[0];
+  $$("[data-floor]").forEach((button) => button.classList.toggle("active", button.dataset.floor === floor.id));
+  const zones = [...floor.zones].sort((a, b) => a.y - b.y || a.x - b.x);
+  const key = getCacheKey(state.revision, floor.id, mapZoom, mapSelection, selectedMapZoneId);
+  const canvasHtml = getCachedValue(renderCache.baseMapHtml, key, () => `
+    <div class="base-map-stage" style="--map-scale:${mapZoom};--map-ratio:${floorArt.imageWidth}/${floorArt.imageHeight}">
+      <img src="${escapeAttr(floor.image)}" alt="Mapa ${escapeAttr(floor.name)}" width="${floorArt.imageWidth}" height="${floorArt.imageHeight}" draggable="false" decoding="async" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+      <p class="map-art-missing" hidden>Arte deste piso ainda não foi adicionada.</p>
+      <div class="base-map-overlay" style="width:${MAP_GRID_PITCH * MAP_GRID_COLUMNS / floorArt.imageWidth * 100}%;height:${MAP_GRID_PITCH * MAP_GRID_ROWS / floorArt.imageHeight * 100}%">
+      <div class="base-map-grid" aria-hidden="true"></div>
+      ${zones.map((zone) => renderBaseMapZone(zone)).join("")}
+      ${mapSelection ? `<div class="base-map-selection" style="left:${(mapSelection.x / floor.columns) * 100}%;top:${(mapSelection.y / floor.rows) * 100}%;width:${(mapSelection.width / floor.columns) * 100}%;height:${(mapSelection.height / floor.rows) * 100}%"></div>` : ""}
+      </div>
+    </div>`);
+  setHtmlIfChanged(canvas, canvasHtml);
+  const listHtml = zones.length ? zones.map((zone) => `<button class="map-zone-list-item" type="button" data-action="open-map-zone" data-id="${escapeAttr(zone.id)}"><strong>${escapeHtml(zone.title)}</strong><span>${escapeHtml(zone.kind === "room" ? "Sala" : "Construção")} · ${escapeHtml(zone.status)}</span></button>`).join("") : renderEmpty("Nenhuma área marcada", "Arraste sobre o mapa para reservar a primeira área.");
+  setHtmlIfChanged(list, listHtml);
+}
+
+function getMapZoneGeometry(zone) {
+  if (zone.gridVersion === 2) return zone;
+  const art = BASE_MAP_FLOORS.find((floor) => floor.id === zone.floorId) || BASE_MAP_FLOORS[0];
+  const x = Math.min(MAP_GRID_COLUMNS - 1, Math.round(zone.x / BASE_MAP_COLUMNS * art.imageWidth / MAP_GRID_PITCH));
+  const y = Math.min(MAP_GRID_ROWS - 1, Math.round(zone.y / BASE_MAP_ROWS * art.imageHeight / MAP_GRID_PITCH));
+  const right = Math.min(MAP_GRID_COLUMNS, Math.round((zone.x + zone.width) / BASE_MAP_COLUMNS * art.imageWidth / MAP_GRID_PITCH));
+  const bottom = Math.min(MAP_GRID_ROWS, Math.round((zone.y + zone.height) / BASE_MAP_ROWS * art.imageHeight / MAP_GRID_PITCH));
+  return { ...zone, x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
+}
+
+function renderBaseMapZone(zone) {
+  zone = getMapZoneGeometry(zone);
+  const status = getMapZoneStatus(zone.status);
+  const kindLabel = zone.kind === "room" ? "Sala" : "Construção";
+  return `<button class="base-map-zone ${zone.kind} status-${status}" type="button" data-action="open-map-zone" data-id="${escapeAttr(zone.id)}" aria-label="${escapeAttr(`${kindLabel}: ${zone.title}, ${zone.status}`)}" style="--zone-columns:${zone.width};--zone-rows:${zone.height};left:${(zone.x / MAP_GRID_COLUMNS) * 100}%;top:${(zone.y / MAP_GRID_ROWS) * 100}%;width:${(zone.width / MAP_GRID_COLUMNS) * 100}%;height:${(zone.height / MAP_GRID_ROWS) * 100}%"><span class="base-map-zone-fill" aria-hidden="true"></span><span class="base-map-zone-label"><strong>${escapeHtml(zone.title)}</strong><em>${escapeHtml(zone.status)}</em></span></button>`;
+}
+
+function getMapZoneStatus(value) {
+  const status = String(value || "").toLocaleLowerCase("pt-BR");
+  if (/conclu|pront|ativ|ocupad/.test(status)) return "active";
+  if (/obra|constru|andamento|progres/.test(status)) return "building";
+  if (/inativ|abandon|bloquead/.test(status)) return "inactive";
+  return "planned";
+}
+
+function getMapCellFromEvent(event) {
+  const stage = $("#baseMapCanvas .base-map-stage");
+  const floor = state.baseMap.floors.find((item) => item.id === selectedMapFloorId);
+  if (!stage || !floor) return null;
+  const rect = stage.querySelector(".base-map-overlay").getBoundingClientRect();
+  const x = Math.max(0, Math.min(floor.columns - 1, Math.floor(((event.clientX - rect.left) / rect.width) * floor.columns)));
+  const y = Math.max(0, Math.min(floor.rows - 1, Math.floor(((event.clientY - rect.top) / rect.height) * floor.rows)));
+  return { x, y };
+}
+
+function handleMapPointerDown(event) {
+  if (!event.target.closest(".base-map-stage") || event.button > 0) return;
+  if (event.target.closest("[data-zone-id], .base-map-zone")) return;
+  const point = getMapCellFromEvent(event);
+  if (!point) return;
+  mapSelection = { x: point.x, y: point.y, width: 1, height: 1, startX: point.x, startY: point.y };
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  renderBaseMap();
+}
+
+function handleMapPointerMove(event) {
+  if (!mapSelection) return;
+  const point = getMapCellFromEvent(event);
+  if (!point) return;
+  mapSelection.x = Math.min(mapSelection.startX, point.x);
+  mapSelection.y = Math.min(mapSelection.startY, point.y);
+  mapSelection.width = Math.abs(point.x - mapSelection.startX) + 1;
+  mapSelection.height = Math.abs(point.y - mapSelection.startY) + 1;
+  const selection = $("#baseMapCanvas .base-map-selection");
+  const floor = state.baseMap.floors.find((item) => item.id === selectedMapFloorId);
+  if (selection && floor) {
+    selection.style.left = `${(mapSelection.x / floor.columns) * 100}%`;
+    selection.style.top = `${(mapSelection.y / floor.rows) * 100}%`;
+    selection.style.width = `${(mapSelection.width / floor.columns) * 100}%`;
+    selection.style.height = `${(mapSelection.height / floor.rows) * 100}%`;
+  }
+}
+
+function handleMapPointerUp(event) {
+  if (!mapSelection) return;
+  const selection = { x: mapSelection.x, y: mapSelection.y, width: mapSelection.width, height: mapSelection.height };
+  event.currentTarget.releasePointerCapture?.(event.pointerId);
+  mapSelection = null;
+  openMapZoneModal("", selection);
+}
+
+function handleMapCanvasAction(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+  if (button.dataset.action === "open-map-zone") openMapZoneModal(button.dataset.id);
+}
+
+function handleMapControlAction(event) {
+  const button = event.target.closest("[data-floor]");
+  if (!button) return;
+  selectedMapFloorId = button.dataset.floor;
+  selectedMapZoneId = "";
+  mapSelection = null;
+  renderBaseMap();
+}
+
+function setMapZoom(nextZoom) {
+  mapZoom = Math.max(0.7, Math.min(1.6, Math.round(nextZoom * 10) / 10));
+  renderBaseMap();
+}
+
+function openMapZoneModal(zoneId = "", selection = null) {
+  const modal = $("#mapZoneModal");
+  const detail = $("#mapZoneDetail");
+  const floor = state.baseMap.floors.find((item) => item.id === selectedMapFloorId);
+  if (!modal || !detail || !floor) return;
+  const existing = floor.zones.find((zone) => zone.id === zoneId);
+  selectedMapZoneId = existing?.id || "";
+  const zone = existing ? getMapZoneGeometry(existing) : { id: "", title: "", kind: "room", status: "Planejada", description: "", responsible: "", roomId: "", ...(selection || { x: 0, y: 0, width: 1, height: 1 }) };
+  detail.innerHTML = `<article class="campaign-modal-card"><header><div><p class="eyebrow">${existing ? "Editar área" : "Nova área"}</p><h3>${existing ? escapeHtml(existing.title) : "Marcar área no mapa"}</h3></div><button class="icon-button" type="button" title="Fechar" data-action="close-map-zone">×</button></header><form class="stacked-form map-zone-form"><input name="id" type="hidden" value="${escapeAttr(zone.id)}"><input name="x" type="hidden" value="${zone.x}"><input name="y" type="hidden" value="${zone.y}"><input name="width" type="hidden" value="${zone.width}"><input name="height" type="hidden" value="${zone.height}"><div class="form-row"><label>Nome<input name="title" required maxlength="80" value="${escapeAttr(zone.title)}"></label><label>Tipo<select name="kind"><option value="room"${zone.kind === "room" ? " selected" : ""}>Sala</option><option value="construction"${zone.kind === "construction" ? " selected" : ""}>Construção</option></select></label></div><div class="form-row"><label>Estado<input name="status" maxlength="40" value="${escapeAttr(zone.status)}"></label><label>Responsável<input name="responsible" maxlength="60" value="${escapeAttr(zone.responsible)}"></label></div><label>Vincular sala existente<select name="roomId"><option value="">Sem vínculo</option>${state.rooms.map((room) => `<option value="${escapeAttr(room.id)}"${room.id === zone.roomId ? " selected" : ""}>${escapeHtml(room.name)}</option>`).join("")}</select></label><label>Descrição<textarea name="description" rows="4" maxlength="600">${escapeHtml(zone.description)}</textarea></label><p class="map-zone-coordinates">Grade: ${zone.x + 1}, ${zone.y + 1} · ${zone.width} × ${zone.height} quadrados</p><div class="button-row"><button class="button primary" type="submit">Salvar área</button>${existing ? `<button class="button danger" type="button" data-action="delete-map-zone" data-id="${escapeAttr(existing.id)}">Remover</button>` : ""}<button class="button ghost" type="button" data-action="close-map-zone">Cancelar</button></div></form></article>`;
+  modal.hidden = false;
+  document.body.classList.add("campaign-modal-open");
+}
+
+function handleMapZoneModalAction(event) {
+  if (event.target === event.currentTarget || event.target.closest("[data-action='close-map-zone']")) {
+    $("#mapZoneModal").hidden = true;
+    document.body.classList.remove("campaign-modal-open");
+    selectedMapZoneId = "";
+    return;
+  }
+  const remove = event.target.closest("[data-action='delete-map-zone']");
+  if (!remove) return;
+  const floor = state.baseMap.floors.find((item) => item.id === selectedMapFloorId);
+  const zone = floor?.zones.find((item) => item.id === remove.dataset.id);
+  if (floor && zone && confirm(`Remover a área ${zone.title}?`)) {
+    addDeletedRecord("mapZone", zone.id);
+    floor.zones = floor.zones.filter((item) => item.id !== zone.id);
+    $("#mapZoneModal").hidden = true;
+    document.body.classList.remove("campaign-modal-open");
+    saveState(); renderBaseMap(); showToast("Área removida do mapa.");
+  }
+}
+
+function saveMapZone(event) {
+  event.preventDefault();
+  const form = event.target;
+  const floor = state.baseMap.floors.find((item) => item.id === selectedMapFloorId);
+  if (!floor) return;
+  const data = new FormData(form);
+  const id = String(data.get("id") || "");
+  const existing = floor.zones.find((item) => item.id === id);
+  const zone = normalizeMapZone({
+    ...(existing || getActorMetadata()), id: id || createId("map-zone"), floorId: floor.id, title: String(data.get("title") || "").trim(), kind: data.get("kind"), status: String(data.get("status") || "Planejada").trim(), responsible: String(data.get("responsible") || "").trim(), roomId: String(data.get("roomId") || ""), description: String(data.get("description") || "").trim(), x: Number(data.get("x")), y: Number(data.get("y")), width: Number(data.get("width")), height: Number(data.get("height")), updatedAt: Date.now(), gridVersion: 2
+  }, floor.id, state.users);
+  const overlaps = floor.zones.map(getMapZoneGeometry).some((item) => item.id !== zone.id && zone.x < item.x + item.width && zone.x + zone.width > item.x && zone.y < item.y + item.height && zone.y + zone.height > item.y);
+  if (overlaps) { showToast("Essa área se sobrepõe a uma zona já marcada."); return; }
+  const index = floor.zones.findIndex((item) => item.id === zone.id);
+  if (index >= 0) floor.zones[index] = zone; else floor.zones.push(zone);
+  $("#mapZoneModal").hidden = true; document.body.classList.remove("campaign-modal-open");
+  saveState(state, { immediate: true }); renderBaseMap(); showToast("Área salva. Sincronizando com a mesa...");
+}
+
+function updateMissionFields() {
+  const rumor = $("#missionType").value === "rumor";
+  $("#missionAssignee").closest("label").hidden = rumor;
+  $("#missionSource").closest("label").hidden = !rumor;
+  $("#missionReliability").closest("label").hidden = !rumor;
+}
+
+function toggleCampaignComposer(kind, open) {
+  if (kind === "mission") updateMissionFields();
+  const panel = $(`#${kind}EditorPanel`);
+  if (panel) panel.hidden = !open;
+  if (open) {
+    const references = panel?.querySelector("select[multiple]");
+    if (references && !references.options.length) references.innerHTML = getCampaignReferenceOptions();
+    renderReferencePicker(references);
+  }
+  if (open) panel?.querySelector("input, textarea, select")?.focus();
+}
+
+function clearMissionForm() { const form = $("#missionForm"); if (form) form.reset(); $("#missionId").value = ""; $("#missionReferences").innerHTML = getCampaignReferenceOptions(); renderReferencePicker("missionReferences"); toggleCampaignComposer("mission", false); }
+function clearTimelineForm() { const form = $("#timelineForm"); if (form) form.reset(); $("#timelineId").value = "";setCampaignRecordDate("timeline"); $("#timelineReferences").innerHTML = getCampaignReferenceOptions(); renderReferencePicker("timelineReferences"); renderTimelineDayPreview(); toggleCampaignComposer("timeline", false); }
+function clearTrophyForm() { const form = $("#trophyForm"); if (form) form.reset(); $("#trophyId").value = "";setCampaignRecordDate("trophy"); $("#trophyImage").value = ""; $("#trophyReferences").innerHTML = getCampaignReferenceOptions(); renderReferencePicker("trophyReferences"); renderImagePreview("trophyImagePreview", ""); renderTrophyRecipients({awardedToGroup:true,recipientHeroIds:[]});toggleCampaignComposer("trophy", false); }
+
+function renderTimelineDayPreview() {
+  const output = $("#timelineDayPreview");
+  if (!output) return;
+  const day = readCampaignRecordDate("timeline");
+  output.textContent = day ? formatCalendarDate(day) : "Sem data definida";
+}
+
+function renderMissions() {
+  const list = $("#missionList"); if (!list) return;
+  const query = $("#missionSearch")?.value.trim().toLowerCase() || "";
+  const type = $("#missionTypeFilter")?.value || "all";
+  const status = $("#missionStatusFilter")?.value || "all";
+  const records = state.missions.filter((item) => (!query || `${item.title} ${item.description} ${item.region} ${item.tags}`.toLowerCase().includes(query)) && (type === "all" || item.type === type) && (status === "all" || item.status === status)).sort((a,b) => b.updatedAt - a.updatedAt);
+  const key = getCacheKey(state.revision, query, type, status, isAdmin());
+  setHtmlIfChanged(list, getCachedValue(renderCache.missionsHtml, key, () => renderMissionBoard(records, type)));
+}
+
+function renderMissionBoard(records, typeFilter) {
+  if (!records.length) return renderEmpty("Nenhuma missão ou rumor", "Registre oportunidades, boatos e fios narrativos para a companhia.");
+  const missions = records.filter((item) => item.type === "mission");
+  const rumors = records.filter((item) => item.type === "rumor");
+  const columns = [
+    { key: "available", title: "Disponíveis", items: missions.filter((item) => item.status === "available") },
+    { key: "active", title: "Em curso", items: missions.filter((item) => item.status === "active") },
+    { key: "closed", title: "Encerradas", items: missions.filter((item) => ["completed", "failed"].includes(item.status)) }
+  ];
+  return `<div class="quest-board">
+    ${typeFilter !== "rumor" ? `<div class="quest-board-columns">${columns.map((column) => `<section class="quest-column status-${column.key}"><header><h3>${column.title}</h3><span>${column.items.length}</span></header><div>${column.items.length ? column.items.map(renderMissionNotice).join("") : `<p class="quest-column-empty">Nenhum chamado.</p>`}</div></section>`).join("")}</div>` : ""}
+    ${typeFilter !== "mission" ? `<section class="rumor-board"><header><p class="eyebrow">Vozes à meia-luz</p><h3>Rumores</h3><span>${rumors.length}</span></header><div class="rumor-strip">${rumors.length ? rumors.map(renderMissionNotice).join("") : `<p class="quest-column-empty">Nenhum rumor circulando.</p>`}</div></section>` : ""}
+  </div>`;
+}
+
+function renderMissionNotice(item) {
+  const typeLabel = item.type === "rumor" ? "Rumor" : ({ available: "Disponível", active: "Em curso", completed: "Concluída", failed: "Fracassada" }[item.status] || item.status);
+  return `<article class="quest-notice ${item.type} status-${escapeAttr(item.status)}"><span class="quest-pin" aria-hidden="true"></span><header><p>${escapeHtml(typeLabel)}</p><div class="card-actions">${item.type === "rumor" ? `<button class="icon-button" type="button" title="Converter em missão" data-action="convert-rumor" data-id="${escapeAttr(item.id)}">↗</button>` : ""}<button class="icon-button" type="button" title="Editar" data-action="edit-mission" data-id="${escapeAttr(item.id)}">✎</button><button class="icon-button" type="button" title="Remover" data-action="delete-mission" data-id="${escapeAttr(item.id)}">✕</button></div></header><h4>${escapeHtml(item.title)}</h4>${item.description ? `<p>${nl2br(item.description)}</p>` : ""}<div class="quest-notice-meta">${item.region ? `<span>${escapeHtml(item.region)}</span>` : ""}${item.assignee ? `<span>${escapeHtml(item.assignee)}</span>` : ""}${item.type === "rumor" ? `<span>${escapeHtml(item.reliability)}</span>` : ""}${item.dueDay ? `<span>${escapeHtml(formatCalendarDate(item.dueDay))}</span>` : ""}</div>${renderReferenceChips(item.references)}</article>`;
+}
+
+function saveMission(event) {
+  event.preventDefault(); const id = $("#missionId").value; const existing = state.missions.find((item) => item.id === id); const item = normalizeMission({ ...(existing || getActorMetadata()), id: id || createId("mission"), type: $("#missionType").value, title: $("#missionTitle").value.trim(), description: $("#missionDescription").value.trim(), status: $("#missionStatus").value, assignee: $("#missionAssignee").value.trim(), region: $("#missionRegion").value.trim(), source: $("#missionSource").value.trim(), reliability: $("#missionReliability").value, dueDay: Number($("#missionDueDay").value) || 0, tags: $("#missionTags").value, references: getSelectedOptions($("#missionReferences")), updatedAt: Date.now() }, state.users); if (!item.title) return showToast("Informe um título."); const index = state.missions.findIndex((record) => record.id === item.id); if (index >= 0) state.missions[index] = item; else state.missions.push(item); saveState(state, { immediate: true }); clearMissionForm(); renderMissions(); showToast(item.type === "rumor" ? "Rumor salvo. Sincronizando com a mesa..." : "Missão salva. Sincronizando com a mesa...");
+}
+
+function handleMissionAction(event) {
+  const button = event.target.closest("[data-action]"); if (!button) return;
+  const item = state.missions.find((record) => record.id === button.dataset.id);
+  if (button.dataset.action === "open-reference") return openCampaignReference(button.dataset.reference);
+  if (!item) return;
+  if (button.dataset.action === "edit-mission") { $("#missionId").value=item.id; $("#missionType").value=item.type; $("#missionTitle").value=item.title; $("#missionDescription").value=item.description; $("#missionStatus").value=item.status; $("#missionAssignee").value=item.assignee; $("#missionRegion").value=item.region; $("#missionSource").value=item.source; $("#missionReliability").value=item.reliability; $("#missionDueDay").value=item.dueDay || ""; $("#missionTags").value=item.tags.join(", "); $("#missionReferences").innerHTML=getCampaignReferenceOptions(item.references); renderReferencePicker("missionReferences"); toggleCampaignComposer("mission",true); return; }
+  if (button.dataset.action === "convert-rumor" && item.type === "rumor") { item.type = "mission"; item.status = "available"; item.updatedAt = Date.now(); saveState(); renderMissions(); showToast("Rumor convertido em missão."); return; }
+  if (button.dataset.action === "delete-mission" && confirm(`Remover ${item.title}?`)) { addDeletedRecord("mission",item.id); state.missions=state.missions.filter((record)=>record.id!==item.id); saveState(); renderMissions(); }
+}
+
+let timelineDrag = null;
+function timelineRank(item) { return Number.isFinite(item.order) ? item.order : Number(item.day) || 0; }
+function moveTimelineNode(id, era, beforeId) {
+  const item = state.timeline.find(record => record.id === id);
+  if (!item || !isAuthenticated()) return;
+  const peers = state.timeline.filter(record => record.id !== id && record.era === era).sort((a,b) => timelineRank(a)-timelineRank(b) || a.createdAt-b.createdAt || a.id.localeCompare(b.id));
+  const index = beforeId ? peers.findIndex(record => record.id === beforeId) : peers.length;
+  if (index < 0) return;
+  const left = peers[index-1], right = peers[index];
+  // Equal legacy dates need distinct ranks before inserting between them.
+  if (left && right && timelineRank(left) === timelineRank(right)) {
+    peers.forEach((record,i) => { record.order = i * 1024; record.updatedAt = Date.now(); });
+  }
+  item.order = left && right ? (timelineRank(left)+timelineRank(right))/2 : left ? timelineRank(left)+1024 : right ? timelineRank(right)-1024 : 0;
+  item.era = era; item.updatedAt = Date.now();
+  saveState(state, { immediate:true });
+}
+document.addEventListener("pointerdown", event => {
+  const node = event.target.closest(".timeline-node");
+  if (!node || event.button !== 0 || !isAuthenticated()) return;
+  timelineDrag = { node, id:node.dataset.id, x:event.clientX, y:event.clientY, active:false, target:null };
+  node.setPointerCapture(event.pointerId);
+});
+document.addEventListener("pointermove", event => {
+  const drag = timelineDrag;
+  if (!drag) return;
+  if (!drag.active && Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<7) return;
+  drag.active = true; drag.node.classList.add("is-dragging");
+  drag.node.style.transform = `translate(${event.clientX-drag.x}px,${event.clientY-drag.y}px)`;
+  const scroller = drag.node.closest(".timeline-horizontal-scroll");
+  const bounds = scroller.getBoundingClientRect();
+  if (event.clientX > bounds.right-45) scroller.scrollLeft += 20;
+  if (event.clientX < bounds.left+45) scroller.scrollLeft -= 20;
+  drag.node.style.pointerEvents = "none";
+  const hit = document.elementFromPoint(event.clientX,event.clientY);
+  drag.node.style.pointerEvents = "";
+  const segment = hit?.closest(".timeline-era-segment");
+  document.querySelectorAll(".timeline-drop-target").forEach(el=>el.classList.remove("timeline-drop-target"));
+  if (!segment) { drag.target=null; return; }
+  const nodes = [...segment.querySelectorAll(".timeline-node")].filter(el=>el!==drag.node);
+  const next = nodes.find(el=>event.clientX < el.getBoundingClientRect().left+el.offsetWidth/2);
+  drag.target = { era:segment.querySelector(".timeline-add-node").dataset.era, beforeId:next?.dataset.id };
+  (next || segment.querySelector(".timeline-add-node")).classList.add("timeline-drop-target");
+});
+function finishTimelineDrag(event) {
+  const drag=timelineDrag; if(!drag)return;
+  timelineDrag=null;
+  drag.node.style.transform=""; drag.node.classList.remove("is-dragging");
+  document.querySelectorAll(".timeline-drop-target").forEach(el=>el.classList.remove("timeline-drop-target"));
+  if(!drag.active)return;
+  const suppressClick = event=>{event.preventDefault();event.stopImmediatePropagation();};
+  document.addEventListener("click", suppressClick,{once:true,capture:true});
+  setTimeout(()=>document.removeEventListener("click",suppressClick,true),0);
+  const scroll=drag.node.closest(".timeline-horizontal-scroll").scrollLeft;
+  if(event.type==="pointerup" && drag.target) moveTimelineNode(drag.id,drag.target.era,drag.target.beforeId);
+  renderTimeline();
+  document.querySelector(".timeline-horizontal-scroll").scrollLeft=scroll;
+}
+document.addEventListener("pointerup",finishTimelineDrag);
+document.addEventListener("pointercancel",finishTimelineDrag);
+document.addEventListener("click",event=>{
+  const button=event.target.closest("[data-timeline-pan]");
+  if(button) document.querySelector(".timeline-horizontal-scroll")?.scrollBy({left:Number(button.dataset.timelinePan)*320,behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});
+});
+function renderTimeline() {
+  if(timelineDrag)return;
+  const list = $("#timelineList");
+  if (!list) return;
+  const query = $("#timelineSearch")?.value.trim().toLocaleLowerCase("pt-BR") || "";
+  const era = $("#timelineEraFilter")?.value || "all";
+  const type = $("#timelineTypeFilter")?.value || "all";
+  const records = state.timeline.filter((item) => (!query || `${item.title} ${item.description}`.toLocaleLowerCase("pt-BR").includes(query)) && (era === "all" || item.era === era) && (type === "all" || item.type === type)).sort((a, b) => timelineRank(a) - timelineRank(b) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const key = getCacheKey(state.revision, query, era, type, records.map((item) => [item.id, item.updatedAt]));
+  setHtmlIfChanged(list, getCachedValue(renderCache.timelineHtml, key, () => `<div class="timeline-horizontal-scroll"><div class="campaign-chronicle-horizontal">${[1, 2, 3].map((currentEra) => {
+    const entries = records.filter((item) => Number(item.era) === currentEra);
+    return `<section class="timeline-era-segment" style="--era-width:${Math.max(360, (entries.length + 1) * 180 + 100)}px"><header class="timeline-era-marker"><span>${["I", "II", "III"][currentEra - 1]}</span><h2>${currentEra}ª Era</h2></header><div class="timeline-era-events">${entries.map((item, index) => `<button type="button" class="timeline-node type-${escapeAttr(item.type)} ${index % 2 ? "below" : "above"}" data-action="open-timeline" data-id="${escapeAttr(item.id)}"><span class="timeline-node-dot" aria-hidden="true"></span><span class="timeline-node-label"><small>${item.day ? escapeHtml(formatCalendarDate(item.day)) : "Sem data"}</small><strong>${escapeHtml(item.title)}</strong></span></button>`).join("")}<button class="timeline-add-node" type="button" data-action="add-timeline" data-era="${currentEra}" title="Adicionar registro à ${currentEra}ª Era" aria-label="Adicionar registro à ${currentEra}ª Era">+</button></div></section>`;
+  }).join("")}</div></div>`));
+  renderTimelineDetail();
+  if (!list.querySelector(".timeline-pan-controls")) list.insertAdjacentHTML("afterbegin", `<div class="timeline-pan-controls"><button type="button" data-timeline-pan="-1" aria-label="Navegar para a esquerda" title="Navegar para a esquerda">←</button><button type="button" data-timeline-pan="1" aria-label="Navegar para a direita" title="Navegar para a direita">→</button></div>`);
+}
+
+function renderTimelineDetail() {
+  const dialog = $("#timelineEntryModal");
+  const detail = $("#timelineEntryDetail");
+  if (!dialog || !detail) return;
+  const item = state.timeline.find((record) => record.id === selectedTimelineId);
+  if (!item) { if (dialog.open) dialog.close(); return; }
+  const labels = { session: "Sessão", discovery: "Descoberta", decision: "Decisão" };
+  setHtmlIfChanged(detail, `<header><div><p class="eyebrow">${escapeHtml(labels[item.type])} · ${item.era}ª Era</p><h2>${escapeHtml(item.title)}</h2></div><button type="button" class="icon-button" data-action="close-timeline" aria-label="Fechar" title="Fechar">×</button></header><p class="timeline-detail-date">${item.day ? escapeHtml(formatCalendarDate(item.day)) : "Sem data registrada"}</p><div class="timeline-detail-text">${nl2br(item.description)}</div>${renderReferenceChips(item.references)}<footer class="button-row"><button type="button" class="button ghost" data-action="edit-timeline" data-id="${escapeAttr(item.id)}">Editar registro</button><button type="button" class="button danger" data-action="delete-timeline" data-id="${escapeAttr(item.id)}">Remover</button></footer>`);
+  if (!dialog.open) dialog.showModal();
+}
+
+function saveTimelineEntry(event) { event.preventDefault(); const id=$("#timelineId").value,existing=state.timeline.find((item)=>item.id===id); const item=normalizeTimelineEntry({...(existing||getActorMetadata()),id:id||createId("timeline"),title:$("#timelineTitle").value.trim(),description:$("#timelineDescription").value.trim(),type:$("#timelineType").value,era:$("#timelineEra").value,day:readCampaignRecordDate("timeline",existing?.day),references:getSelectedOptions($("#timelineReferences")),updatedAt:Date.now()},state.users); if(!item.title)return showToast("Informe um título."); const index=state.timeline.findIndex((record)=>record.id===item.id); if(index>=0)state.timeline[index]=item;else state.timeline.push(item);saveState(state,{immediate:true});clearTimelineForm();renderTimeline();showToast("Marco salvo. Sincronizando com a mesa..."); }
+function handleTimelineAction(event){const button=event.target.closest("[data-action]");if(!button)return;if(button.dataset.action==="close-timeline"){selectedTimelineId="";renderTimelineDetail();return;}if(button.dataset.action==="add-timeline"){clearTimelineForm();$("#timelineEra").value=button.dataset.era;toggleCampaignComposer("timeline",true);return;}if(button.dataset.action==="open-reference")return openCampaignReference(button.dataset.reference);const item=state.timeline.find((record)=>record.id===button.dataset.id);if(!item)return;if(button.dataset.action==="open-timeline"){selectedTimelineId=item.id;renderTimelineDetail();return;}if(button.dataset.action==="edit-timeline"){selectedTimelineId="";renderTimelineDetail();$("#timelineId").value=item.id;$("#timelineTitle").value=item.title;$("#timelineDescription").value=item.description;$("#timelineType").value=item.type;$("#timelineEra").value=item.era;setCampaignRecordDate("timeline",item.day);$("#timelineReferences").innerHTML=getCampaignReferenceOptions(item.references);renderReferencePicker("timelineReferences");renderTimelineDayPreview();toggleCampaignComposer("timeline",true);}if(button.dataset.action==="delete-timeline"&&confirm(`Remover ${item.title}?`)){addDeletedRecord("timeline",item.id);state.timeline=state.timeline.filter((record)=>record.id!==item.id);saveState();renderTimeline();}}
+
+function renderTrophies() {
+  const list = $("#trophyList"); if (!list) return;
+  renderTrophyRecipients();
+  const query = $("#trophySearch")?.value.trim().toLowerCase() || "";
+  const records = state.trophies.filter((item) => (trophyRarityFilter === "all" || item.rarity === trophyRarityFilter) && (!query || `${item.title} ${item.category} ${item.description}`.toLowerCase().includes(query))).sort((a, b) => Number(b.featured) - Number(a.featured) || b.updatedAt - a.updatedAt);
+  $$("#trophyRarityFilters [data-rarity]").forEach((button) => button.classList.toggle("active", button.dataset.rarity === trophyRarityFilter));
+  const key = getCacheKey(state.revision, query, trophyRarityFilter, isAdmin());
+  const emptyHooks = 3;
+  setHtmlIfChanged(list, getCachedValue(renderCache.trophiesHtml, key, () => `<div class="trophy-hall">${records.map(renderTrophyCard).join("")}${Array.from({ length: emptyHooks }, () => `<div class="trophy-empty-hook" aria-hidden="true"><span>☠</span><small>Gancho vazio</small></div>`).join("")}</div>${!records.length ? `<div class="trophy-filter-empty"><strong>${state.trophies.length ? "Nenhuma conquista neste filtro" : "O salão aguarda seu primeiro feito"}</strong><span>As próximas vitórias encontrarão seu lugar nestas muralhas.</span></div>` : ""}`));
+  const modal = $("#trophyModal"), detail = $("#trophyDetail");
+  const selected = selectedTrophyId ? state.trophies.find((item) => item.id === selectedTrophyId) : null;
+  if (modal && detail) { setHtmlIfChanged(detail, selected ? `<article class="campaign-modal-card trophy-detail"><header><div><p class="eyebrow">${escapeHtml(selected.category || "Conquista")}</p><h3>${escapeHtml(selected.title)}</h3></div><button class="icon-button" data-action="close-trophy" title="Fechar">×</button></header><p class="trophy-detail-recipients">${escapeHtml(getTrophyRecipientsLabel(selected))}</p>${selected.image ? `<img src="${escapeAttr(selected.image)}" alt="${escapeAttr(selected.title)}">` : ""}<p>${nl2br(selected.description)}</p>${selected.day ? `<p class="muted">${escapeHtml(formatCalendarDate(selected.day))}</p>` : ""}${renderReferenceChips(selected.references)}</article>` : ""); modal.hidden = !selected; }
+}
+
+function renderTrophyRecipients(item = null) {
+  const container = $("#trophyRecipientOptions");
+  if (!container) return;
+  const selected = new Set(item?.recipientHeroIds || $$("#trophyRecipientOptions input:checked").map((input) => input.value));
+  const heroes = state.campfire?.heroes || [];
+  const key = JSON.stringify(heroes.map((hero) => [hero.id, hero.characterName]));
+  if (item || container.dataset.heroes !== key) {
+    container.innerHTML = heroes.map((hero) => `<label class="checkbox-row"><input type="checkbox" value="${escapeAttr(hero.id)}" ${selected.has(hero.id) ? "checked" : ""}>${escapeHtml(hero.characterName)}</label>`).join("");
+    container.dataset.heroes = key;
+  }
+  if (item) $("#trophyAwardGroup").checked = item.awardedToGroup !== false;
+}
+
+function getTrophyRecipientsLabel(item) {
+  const names = (item.recipientHeroIds || []).map((id) => state.campfire.heroes.find((hero) => hero.id === id)?.characterName || "Herói arquivado");
+  if (item.awardedToGroup !== false) names.unshift("Minimus Legio");
+  return names.join(" · ") || "Sem atribuição";
+}
+
+function renderTrophyCard(item) {
+  const rarity = item.rarity || "notable";
+  const rarityLabel = { legendary: "Marco Lendário", epic: "Conquista Épica", notable: "Feito Notável" }[rarity];
+  const rarityIcon = { legendary: "♛", epic: "✦", notable: "◆" }[rarity];
+  const author = getTrophyRecipientsLabel(item);
+  const context = item.description.length > 150 ? `${item.description.slice(0, 147).trim()}...` : item.description;
+  return `<article class="trophy-card rarity-${rarity}${item.featured ? " featured" : ""}"><button class="trophy-card-main" type="button" data-action="open-trophy" data-id="${escapeAttr(item.id)}"><span class="trophy-rarity"><b aria-hidden="true">${rarityIcon}</b>${rarityLabel}</span><span class="trophy-art">${item.image ? `<img src="${escapeAttr(item.image)}" alt="${escapeAttr(item.title)}" loading="lazy" decoding="async">` : `<span class="trophy-placeholder" aria-hidden="true">✦</span>`}${item.featured ? `<i class="trophy-spark" aria-hidden="true">✦</i>` : ""}</span><span class="trophy-card-body"><strong>${escapeHtml(item.title)}</strong>${context ? `<span class="trophy-context">${escapeHtml(context)}</span>` : ""}<span class="trophy-meta"><span>${escapeHtml(author)}</span><span>${item.day ? escapeHtml(formatCalendarDate(item.day)) : "Data não registrada"}</span></span></span></button>${isAdmin() ? `<div class="card-actions"><button class="icon-button" title="Editar" data-action="edit-trophy" data-id="${escapeAttr(item.id)}">✎</button><button class="icon-button" title="Remover" data-action="delete-trophy" data-id="${escapeAttr(item.id)}">✕</button></div>` : ""}</article>`;
+}
+
+function saveTrophy(event){event.preventDefault();if(!isAdmin())return;if(!$("#trophyAwardGroup").checked && !$$("#trophyRecipientOptions input:checked").length)return showToast("Escolha pelo menos um personagem ou Minimus Legio.");const id=$("#trophyId").value,existing=state.trophies.find((item)=>item.id===id);const item=normalizeTrophy({...(existing||getActorMetadata()),id:id||createId("trophy"),title:$("#trophyTitle").value.trim(),category:$("#trophyCategory").value.trim(),rarity:$("#trophyRarity").value,featured:$("#trophyFeatured").checked,awardedToGroup:$("#trophyAwardGroup").checked,recipientHeroIds:$$("#trophyRecipientOptions input:checked").map((input)=>input.value),image:$("#trophyImage")?.value||"",description:$("#trophyDescription").value.trim(),day:readCampaignRecordDate("trophy",existing?.day),references:getSelectedOptions($("#trophyReferences")),updatedAt:Date.now()},state.users);if(!item.title)return showToast("Informe um título.");const index=state.trophies.findIndex((record)=>record.id===item.id);if(index>=0)state.trophies[index]=item;else state.trophies.push(item);saveState(state,{immediate:true});clearTrophyForm();renderTrophies();showToast("Troféu salvo. Sincronizando com a mesa...");}
+function handleTrophyAction(event){const button=event.target.closest("[data-action]");if(!button)return;if(button.dataset.action==="open-reference")return openCampaignReference(button.dataset.reference);const item=state.trophies.find((record)=>record.id===button.dataset.id);if(button.dataset.action==="close-trophy"||event.target===event.currentTarget){selectedTrophyId="";renderTrophies();return;}if(!item)return;if(button.dataset.action==="open-trophy"){selectedTrophyId=item.id;renderTrophies();return;}if(!isAdmin())return;if(button.dataset.action==="edit-trophy"){$("#trophyId").value=item.id;$("#trophyTitle").value=item.title;$("#trophyCategory").value=item.category;$("#trophyRarity").value=item.rarity||"notable";$("#trophyFeatured").checked=Boolean(item.featured);renderTrophyRecipients(item);setCampaignRecordDate("trophy",item.day);$("#trophyDescription").value=item.description;$("#trophyReferences").innerHTML=getCampaignReferenceOptions(item.references);renderReferencePicker("trophyReferences");$("#trophyImage").value=item.image||"";renderImagePreview("trophyImagePreview",item.image||"");toggleCampaignComposer("trophy",true);}if(button.dataset.action==="delete-trophy"&&confirm(`Remover ${item.title}?`)){addDeletedRecord("trophy",item.id);state.trophies=state.trophies.filter((record)=>record.id!==item.id);selectedTrophyId="";saveState();renderTrophies();}}

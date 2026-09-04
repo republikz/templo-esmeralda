@@ -26,7 +26,7 @@ export async function onRequestPost({ request, env }) {
     if (changed) {
       state.revision = Math.max(Number(row?.revision) || 0, Number(state.revision) || 0) + 1;
       state.updatedAt = Date.now();
-      await writeStateRow(env, state);
+      await writeStateRow(env, state, Number(row?.revision) || 0);
     }
     const session = await createSessionToken(env, user);
     return json({ ...session, user: publicUser(user) });

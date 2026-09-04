@@ -12,7 +12,7 @@ export async function onRequestGet({ request, env }) {
     if (migrated.changed) {
       migrated.state.revision = Math.max(Number(row?.revision) || 0, Number(migrated.state.revision) || 0) + 1;
       migrated.state.updatedAt = Date.now();
-      await writeStateRow(env, migrated.state);
+      await writeStateRow(env, migrated.state, Number(row?.revision) || 0);
     }
     return new Response(JSON.stringify({ user: publicUser(user) }), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
   } catch (error) {

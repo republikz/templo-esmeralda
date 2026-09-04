@@ -33,7 +33,7 @@ export async function readStateRow(env) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
-export async function writeStateRow(env, state) {
+export async function writeStateRow(env, state, expectedRevision) {
   const config = getConfig(env);
   if (!config.supabaseUrl || !config.serviceKey) {
     throw new Error("Configuração do Supabase ausente.");
@@ -44,17 +44,24 @@ export async function writeStateRow(env, state) {
     revision: Number(state.revision) || 0,
     updated_at: new Date().toISOString()
   };
-  const response = await fetch(`${config.supabaseUrl}/rest/v1/${config.table}?on_conflict=id`, {
-    method: "POST",
+  if (!Number.isFinite(expectedRevision)) throw new Error("Revisão de origem obrigatória para salvar.");
+  const response = await fetch(`${config.supabaseUrl}/rest/v1/${config.table}?id=eq.${encodeURIComponent(config.rowId)}&revision=eq.${expectedRevision}`, {
+    method: "PATCH",
     headers: headers(config, {
       "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation"
+      Prefer: "return=representation"
     }),
-    body: JSON.stringify([payload])
+    body: JSON.stringify(payload)
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new Error(`Falha ao salvar o estado (${response.status}): ${detail}`);
   }
-  return response.json();
+  const rows = await response.json();
+  if (!Array.isArray(rows) || !rows.length) {
+    const error = new Error("A campanha mudou durante o salvamento. Tente novamente.");
+    error.status = 409;
+    throw error;
+  }
+  return rows;
 }

@@ -10,6 +10,9 @@
 /index.html
   Cache-Control: no-cache
 
+/
+  Cache-Control: no-cache
+
 /*.js
   Cache-Control: public, max-age=31536000, immutable
 
@@ -24,3 +27,9 @@
 
 /*.woff2
   Cache-Control: public, max-age=31536000, immutable
+
+/assets/*
+  Cache-Control: public, max-age=3600, must-revalidate
+
+/asset-manifest.json
+  Cache-Control: no-cache

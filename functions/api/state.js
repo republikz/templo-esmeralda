@@ -169,6 +169,21 @@ async function hydrateStateImages(state, env) {
     }
   }
 
+  if (Array.isArray(nextState.trophies)) {
+    for (const trophy of nextState.trophies) {
+      if (trophy && typeof trophy.image === "string" && parseDataUrl(trophy.image)) {
+        trophy.image = await uploadDataUrl({
+          env,
+          dataUrl: trophy.image,
+          prefix: "trophies",
+          entityId: trophy.id || crypto.randomUUID(),
+          field: "trophy",
+          revision
+        });
+      }
+    }
+  }
+
   return nextState;
 }
 
@@ -178,6 +193,7 @@ function cloneState(value) {
 
 function cleanIncomingState(state) {
   const next = cloneState(state);
+  delete next.npcRelations;
   delete next.activeUserId;
   delete next._baseRevision;
   delete next._changedFields;
@@ -252,6 +268,19 @@ function applyIncomingRecordDelta(currentState, incomingState) {
     changes.journeyComments
   );
   next.journey.reads = retainUnchangedRecords(currentState.journey?.reads, next.journey.reads, changedIdSet(changes, "journeyReads"));
+  const currentFloors = Array.isArray(currentState.baseMap?.floors) ? currentState.baseMap.floors : [];
+  const incomingFloors = Array.isArray(next.baseMap?.floors) ? next.baseMap.floors : [];
+  const baseMapFloors = currentFloors.length ? currentFloors : incomingFloors;
+  next.baseMap = {
+    ...(next.baseMap || {}),
+    floors: baseMapFloors.map((floor) => {
+      const incomingFloor = incomingFloors.find((candidate) => candidate?.id === floor.id) || floor;
+      return { ...floor, ...incomingFloor, zones: retainUnchangedRecords(floor.zones, incomingFloor.zones, changedIdSet(changes, "mapZones")) };
+    })
+  };
+  ["missions", "timeline", "trophies"].forEach((field) => {
+    next[field] = retainUnchangedRecords(currentState[field], next[field], changedIdSet(changes, field));
+  });
   return next;
 }
 
@@ -436,6 +465,18 @@ function mergeStates(currentState, incomingState) {
   merged.ledger = mergeArrayById(current.ledger, incoming.ledger, "ledger", tombstones);
   merged.faithTransactions = mergeArrayById(current.faithTransactions, incoming.faithTransactions, "faithTransaction", tombstones);
   merged.events = mergeArrayById(current.events, incoming.events, "event", tombstones);
+  const baseMapFloors = (current.baseMap?.floors?.length ? current.baseMap.floors : incoming.baseMap?.floors) || [];
+  merged.baseMap = {
+    ...(current.baseMap || {}),
+    ...(incoming.baseMap || {}),
+    floors: baseMapFloors.map((floor) => {
+      const candidate = (incoming.baseMap?.floors || []).find((item) => item?.id === floor.id) || floor;
+      return { ...floor, ...candidate, zones: mergeArrayById(floor.zones, candidate.zones, "mapZone", tombstones) };
+    })
+  };
+  merged.missions = mergeArrayById(current.missions, incoming.missions, "mission", tombstones);
+  merged.timeline = mergeArrayById(current.timeline, incoming.timeline, "timeline", tombstones);
+  merged.trophies = mergeArrayById(current.trophies, incoming.trophies, "trophy", tombstones);
 
   merged.campfire = {
     ...(current.campfire || {}),
@@ -453,6 +494,8 @@ function mergeStates(currentState, incomingState) {
     reads: mergeArrayById(current.journey?.reads, incoming.journey?.reads, "journeyRead", tombstones),
     entries: mergeArrayById(current.journey?.entries, incoming.journey?.entries, "journeyEntry", tombstones, mergeJourneyEntry)
   };
+
+  delete merged.npcRelations;
 
   return merged;
 }
@@ -533,6 +576,7 @@ function canPlayerDeleteRecord(record, currentState, actor) {
     return (currentState.journey?.entries || []).some((entry) => (entry.comments || [])
       .some((comment) => comment?.id === id && comment.userId === actor.id));
   }
+  if (["mapZone", "mission", "timeline"].includes(type)) return true;
   // Investigation notes and links are intentionally shared by the whole table.
   return type === "investigationNote" || type === "investigationLink";
 }
@@ -574,6 +618,10 @@ function restrictPlayerPayload(currentState, incomingState, actor) {
     })()
   };
   next.journey = restrictJourneyForPlayer(currentState.journey, incomingState.journey, actor);
+  next.baseMap = structuredClone(incomingState.baseMap || currentState.baseMap || {});
+  next.missions = structuredClone(incomingState.missions || currentState.missions || []);
+  next.timeline = structuredClone(incomingState.timeline || currentState.timeline || []);
+  next.trophies = structuredClone(currentState.trophies || []);
   const currentDeleted = Array.isArray(currentState.deletedRecords) ? currentState.deletedRecords : [];
   const existingDeleted = new Set(currentDeleted.map((record) => `${record?.type || ""}:${record?.id || ""}`));
   const newAllowedDeleted = (Array.isArray(incomingState.deletedRecords) ? incomingState.deletedRecords : [])
@@ -650,7 +698,7 @@ function stampJourneyEntries(currentEntries, incomingEntries, now) {
 function stampIncomingState(currentState, incomingState) {
   const now = Date.now();
   const next = structuredClone(incomingState || {});
-  ["rooms", "npcs", "financeSources", "ledger", "faithTransactions", "events"].forEach((field) => {
+  ["rooms", "npcs", "financeSources", "ledger", "faithTransactions", "events", "missions", "timeline", "trophies"].forEach((field) => {
     next[field] = stampCollection(currentState[field], next[field], now);
   });
   next.campfire = next.campfire || {};
@@ -667,6 +715,12 @@ function stampIncomingState(currentState, incomingState) {
       return { ...read, createdAt: Number(read?.createdAt) || now, updatedAt: now, readAt: now };
     }
     return read;
+  });
+  next.baseMap = next.baseMap || {};
+  const currentFloors = Array.isArray(currentState.baseMap?.floors) ? currentState.baseMap.floors : [];
+  next.baseMap.floors = (Array.isArray(next.baseMap.floors) ? next.baseMap.floors : []).map((floor) => {
+    const currentFloor = currentFloors.find((item) => item?.id === floor?.id);
+    return { ...floor, zones: stampCollection(currentFloor?.zones, floor?.zones, now) };
   });
   return next;
 }
@@ -696,7 +750,7 @@ export async function onRequest({ request, env }) {
       effectiveRevision = currentRevision + 1;
       currentState.revision = effectiveRevision;
       currentState.updatedAt = Date.now();
-      await writeStateRow(env, currentState);
+      await writeStateRow(env, currentState, Number(row.revision) || 0);
     }
 
     if (request.method === "GET") {
@@ -724,12 +778,12 @@ export async function onRequest({ request, env }) {
     finalState.revision = Math.max(effectiveRevision, Number(currentState.revision) || 0) + 1;
     finalState.updatedAt = Date.now();
     finalState.deletedRecords = Array.isArray(finalState.deletedRecords) ? finalState.deletedRecords : [];
-    await writeStateRow(env, finalState);
+    await writeStateRow(env, finalState, migrated.changed ? effectiveRevision : Number(row.revision) || 0);
     return jsonResponse(JSON.stringify(sanitizeStateForClient(finalState)), {
       status: 200,
       headers: { "X-State-Rebased": rebased ? "1" : "0", "X-State-Revision": String(finalState.revision), ETag: `\"state-${finalState.revision}\"` }
     });
   } catch (error) {
-    return errorResponse(error?.message || "Erro inesperado ao processar o estado.", 500);
+    return errorResponse(error?.message || "Erro inesperado ao processar o estado.", error?.status === 409 ? 409 : 500);
   }
 }

@@ -19,7 +19,7 @@ export async function onRequest({ request, env }) {
     if (migrated.changed) {
       migrated.state.revision = Math.max(Number(row?.revision) || 0, Number(migrated.state.revision) || 0) + 1;
       migrated.state.updatedAt = Date.now();
-      await writeStateRow(env, migrated.state);
+      await writeStateRow(env, migrated.state, Number(row?.revision) || 0);
     }
     return reply({ ok: true, revision: Number(row?.revision) || 0, checkedAt: new Date().toISOString() });
   } catch (error) {

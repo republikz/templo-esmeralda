@@ -24,7 +24,7 @@ async function saveIfNeeded(context, env, changed) {
   if (!changed) return;
   context.state.revision = Math.max(Number(context.row?.revision) || 0, Number(context.state.revision) || 0) + 1;
   context.state.updatedAt = Date.now();
-  await writeStateRow(env, context.state);
+  await writeStateRow(env, context.state, Number(context.row?.revision) || 0);
 }
 
 export async function onRequestPost({ request, env }) {

@@ -7,7 +7,8 @@
     "check": "node --check app.js && node --check worker.js && node --check functions/api/state.js && node --check functions/api/health.js && node --check functions/api/_auth.js && node --check functions/api/auth/login.js && node --check functions/api/auth/session.js && node --check functions/api/auth/users.js",
     "audit:public": "node scripts/audit-public.mjs",
     "perf:report": "node scripts/performance-report.mjs",
-    "test:browser": "node scripts/browser-smoke.mjs"
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "test:presentation": "node scripts/test-campaign-presentation.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1"
