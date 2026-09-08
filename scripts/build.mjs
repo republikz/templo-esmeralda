@@ -1,6 +1,7 @@
 import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { extname, join, basename } from "node:path";
+import { publicAssets } from './public-assets.mjs';
 
 const root = process.cwd();
 const dist = join(root, "dist");
@@ -27,7 +28,11 @@ for (const file of versionedFiles) {
 }
 
 await cp(join(root, "_headers"), join(dist, "_headers"));
-await cp(join(root, "assets"), join(dist, "assets"), { recursive: true });
+for (const file of publicAssets) {
+  await stat(join(root, file));
+  await mkdir(join(dist, file, '..'), { recursive: true });
+  await cp(join(root, file), join(dist, file));
+}
 let html = await readFile(join(root, "index.html"), "utf8");
 html = html
   .replace(/styles\.css(?:\?v=\d+)?/g, manifest["styles.css"])

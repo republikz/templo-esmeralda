@@ -240,9 +240,32 @@ function retainJourneyEntries(currentEntries, incomingEntries, contentChangedIds
   return [...current.map(mergeEntry), ...newEntries];
 }
 
+function mergeInvestigationFields(current, incoming, fields) {
+  if (!current) return incoming;
+  const next = { ...current };
+  if (Array.isArray(fields)) {
+    for (const field of ["title", "text", "color", "x", "y"]) {
+      if (fields.includes(field) && Object.hasOwn(incoming, field)) next[field] = incoming[field];
+    }
+  } else {
+    // Compatibility for older clients: never promote an older position to "now".
+    if (Number(incoming.positionUpdatedAt) > Number(current.positionUpdatedAt)) {
+      next.x = incoming.x; next.y = incoming.y;
+    }
+    if (Number(incoming.contentUpdatedAt) > Number(current.contentUpdatedAt)) {
+      for (const field of ["title", "text", "color"]) next[field] = incoming[field];
+    }
+  }
+  return next;
+}
+
 function applyIncomingRecordDelta(currentState, incomingState) {
   const changes = incomingState?._changedRecords;
-  if (!changes || typeof changes !== "object") return incomingState;
+  if (!changes || typeof changes !== "object") {
+    const next = structuredClone(incomingState);
+    if (next.campfire?.investigationBoard?.notes) next.campfire.investigationBoard.notes = next.campfire.investigationBoard.notes.map(note => mergeInvestigationFields(currentState.campfire?.investigationBoard?.notes?.find(current => current.id === note.id), note));
+    return next;
+  }
   const next = structuredClone(incomingState || {});
   ["rooms", "npcs", "financeSources", "ledger", "faithTransactions", "events"].forEach((field) => {
     next[field] = retainUnchangedRecords(currentState[field], next[field], changedIdSet(changes, field));
@@ -254,7 +277,7 @@ function applyIncomingRecordDelta(currentState, incomingState) {
     currentState.campfire?.investigationBoard?.notes,
     next.campfire.investigationBoard.notes,
     changedIdSet(changes, "investigationNotes")
-  );
+  ).map(note => mergeInvestigationFields(currentState.campfire?.investigationBoard?.notes?.find(current => current.id === note.id), note, changes.investigationNoteFields?.[note.id]));
   next.campfire.investigationBoard.links = retainUnchangedRecords(
     currentState.campfire?.investigationBoard?.links,
     next.campfire.investigationBoard.links,
@@ -293,7 +316,8 @@ function isNewer(incoming, current) {
 }
 
 function normalizeDeletedRecord(record) {
-  const type = String(record?.type || "").trim();
+  const rawType = String(record?.type || "").trim();
+  const type = ({ investigationNote: "campfireInvestigationNote", investigationLink: "campfireInvestigationLink" })[rawType] || rawType;
   const id = String(record?.id || "").trim();
   if (!type || !id) {
     return null;
@@ -578,7 +602,7 @@ function canPlayerDeleteRecord(record, currentState, actor) {
   }
   if (["mapZone", "mission", "timeline"].includes(type)) return true;
   // Investigation notes and links are intentionally shared by the whole table.
-  return type === "investigationNote" || type === "investigationLink";
+  return ["investigationNote", "investigationLink", "campfireInvestigationNote", "campfireInvestigationLink"].includes(type);
 }
 
 function restrictPlayerPayload(currentState, incomingState, actor) {
@@ -631,6 +655,14 @@ function restrictPlayerPayload(currentState, incomingState, actor) {
     });
   next.deletedRecords = [...structuredClone(currentDeleted), ...structuredClone(newAllowedDeleted)];
   return next;
+}
+
+function preserveRetiredReferences(current = [], incoming = []) {
+  const records = new Map(current.map(item => [item.id, item]));
+  for (const item of incoming) {
+    const old = records.get(item.id);
+    if (old && Object.hasOwn(old, "references")) item.references = structuredClone(old.references);
+  }
 }
 
 function comparable(value, ignored = []) {
@@ -766,6 +798,12 @@ export async function onRequest({ request, env }) {
 
     const baseRevision = Math.max(0, Number.parseInt(request.headers.get("X-Base-Revision") || "0", 10) || 0);
     const rebased = baseRevision > 0 && baseRevision < effectiveRevision;
+    const mutationId = request.headers.get("X-Mutation-Id") || "";
+    if (mutationId.length > 80) return errorResponse("Identificador de alteração inválido.", 400);
+    const receiptKey = `${actor.id}:${mutationId}`;
+    if (mutationId && Object.hasOwn(currentState.mutationReceipts || {}, receiptKey)) {
+      return jsonResponse(JSON.stringify(sanitizeStateForClient(currentState)), { headers: { "X-State-Revision": String(effectiveRevision) } });
+    }
     const incoming = await request.json();
     const deltaIncoming = applyIncomingRecordDelta(currentState, incoming);
     const authorizedIncoming = actor.role === "admin"
@@ -778,6 +816,10 @@ export async function onRequest({ request, env }) {
     finalState.revision = Math.max(effectiveRevision, Number(currentState.revision) || 0) + 1;
     finalState.updatedAt = Date.now();
     finalState.deletedRecords = Array.isArray(finalState.deletedRecords) ? finalState.deletedRecords : [];
+    finalState.mutationReceipts = { ...(currentState.mutationReceipts || {}) };
+    if (mutationId) finalState.mutationReceipts[receiptKey] = finalState.revision;
+    for (const field of ["missions", "timeline", "trophies"]) preserveRetiredReferences(currentState[field], finalState[field]);
+    preserveRetiredReferences(currentState.journey?.entries, finalState.journey?.entries);
     await writeStateRow(env, finalState, migrated.changed ? effectiveRevision : Number(row.revision) || 0);
     return jsonResponse(JSON.stringify(sanitizeStateForClient(finalState)), {
       status: 200,

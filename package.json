@@ -8,7 +8,11 @@
     "audit:public": "node scripts/audit-public.mjs",
     "perf:report": "node scripts/performance-report.mjs",
     "test:browser": "node scripts/browser-smoke.mjs",
-    "test:presentation": "node scripts/test-campaign-presentation.mjs"
+    "test:presentation": "node scripts/test-campaign-presentation.mjs",
+    "dev:isolated": "node scripts/serve-isolated.mjs",
+    "test:stability": "node scripts/test-stability.mjs",
+    "test:navigation": "node scripts/test-navigation-stability.mjs",
+    "verify:release": "npm run check && npm run build && npm run audit:public && node scripts/test-store-concurrency.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1"

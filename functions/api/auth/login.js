@@ -7,7 +7,7 @@ function json(body, status = 200) {
 
 export async function onRequestPost({ request, env }) {
   try {
-    const { name, pin } = await request.json();
+    const { name, pin, remember = true } = await request.json();
     const accessName = normalizeAccessName(name);
     if (!accessName || !String(pin || "").trim()) return json({ error: "Informe nome e PIN." }, 400);
     const row = await readStateRow(env);
@@ -28,7 +28,7 @@ export async function onRequestPost({ request, env }) {
       state.updatedAt = Date.now();
       await writeStateRow(env, state, Number(row?.revision) || 0);
     }
-    const session = await createSessionToken(env, user);
+    const session = await createSessionToken(env, user, remember === true);
     return json({ ...session, user: publicUser(user) });
   } catch (error) {
     return json({ error: error?.message || "Não foi possível iniciar a sessão." }, 500);

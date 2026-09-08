@@ -5,6 +5,7 @@ const decoder = new TextDecoder();
 // making every login fail before credential migration can complete.
 const PIN_ITERATIONS = 100000;
 const TOKEN_TTL_SECONDS = 60 * 60 * 8;
+const PERSISTENT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 function base64UrlEncode(value) {
   const bytes = value instanceof Uint8Array ? value : encoder.encode(value);
@@ -54,9 +55,9 @@ async function sessionKey(env) {
   return crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
-export async function createSessionToken(env, user) {
+export async function createSessionToken(env, user, remember = true) {
   const now = Math.floor(Date.now() / 1000);
-  const payload = { sub: user.id, role: user.role, ver: Number(user.authVersion) || 1, iat: now, exp: now + TOKEN_TTL_SECONDS };
+  const payload = { sub: user.id, role: user.role, ver: Number(user.authVersion) || 1, iat: now, exp: now + (remember ? PERSISTENT_TOKEN_TTL_SECONDS : TOKEN_TTL_SECONDS) };
   const encoded = base64UrlEncode(JSON.stringify(payload));
   const signature = await crypto.subtle.sign("HMAC", await sessionKey(env), encoder.encode(encoded));
   return { token: `${encoded}.${base64UrlEncode(new Uint8Array(signature))}`, expiresAt: payload.exp * 1000 };
@@ -91,6 +92,7 @@ export function sanitizeStateForClient(state) {
   const next = structuredClone(state || {});
   next.users = Array.isArray(next.users) ? next.users.map(publicUser) : [];
   delete next.activeUserId;
+  delete next.mutationReceipts;
   delete next._baseRevision;
   delete next._changedFields;
   delete next.npcRelations;

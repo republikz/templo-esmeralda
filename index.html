@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Templo Esmeralda | Base Pathfinder 2e</title>
+    <link rel="icon" type="image/png" href="templo-esmeralda-icon.png">
     <link rel="stylesheet" href="styles.css?v=34">
   </head>
   <body>
@@ -793,11 +794,7 @@
                   Etiquetas
                   <input id="journeyTags" maxlength="180" placeholder="ruínas, fadas, segredo">
                 </label>
-                <label>
-                  Referências cruzadas
-                  <select id="journeyReferences" multiple size="5" aria-describedby="journeyReferenceHelp"></select>
-                  <small id="journeyReferenceHelp">Selecione NPCs, salas, zonas, missões, registros ou troféus relacionados.</small>
-                </label>
+                
                 <label>
                   Descrição
                   <textarea id="journeyDescription" rows="5" maxlength="1200" placeholder="O que foi visto, ouvido ou descoberto?"></textarea>
@@ -881,7 +878,7 @@
               <div class="form-row"><label>Estado<select id="missionStatus"><option value="available">Disponível</option><option value="active">Ativa</option><option value="completed">Concluída</option><option value="failed">Fracassada</option></select></label><label>Responsável<input id="missionAssignee" maxlength="80"></label><label>Região<input id="missionRegion" maxlength="80"></label></div>
               <div class="form-row mission-rumor-fields"><label>Fonte do rumor<input id="missionSource" maxlength="100"></label><label>Confiabilidade<select id="missionReliability"><option value="uncertain">Incerto</option><option value="likely">Provável</option><option value="confirmed">Confirmado</option><option value="false">Falso</option></select></label><label>Prazo (dia absoluto)<input id="missionDueDay" type="number" min="1"></label></div>
               <label>Etiquetas<input id="missionTags" maxlength="180" placeholder="facção, urgência, ruínas"></label>
-              <fieldset class="reference-field"><legend>Vínculos narrativos</legend><p>Conecte esta entrada a elementos já registrados na campanha.</p><select id="missionReferences" multiple hidden></select><div class="reference-picker" data-reference-picker="missionReferences"></div></fieldset>
+              
               <div class="button-row"><button class="button primary" type="submit">Salvar registro</button><button class="button ghost" id="cancelMissionEdit" type="button">Cancelar</button></div>
             </form>
           </section>
@@ -890,14 +887,14 @@
 
         <section class="view" id="view-timeline">
           <section class="panel campaign-intro"><div class="section-header"><div><p class="eyebrow">Crônicas de Minimus Legio</p></div><button class="button primary" id="toggleTimelineComposer" type="button">Registrar</button></div></section>
-          <section class="panel form-panel" id="timelineEditorPanel" hidden><form class="stacked-form" id="timelineForm"><input type="hidden" id="timelineId"><div class="form-row"><label>Tipo<select id="timelineType"><option value="session">Sessão</option><option value="discovery">Descoberta</option><option value="decision">Decisão</option></select></label><label>Era<select id="timelineEra"><option value="1">1ª Era</option><option value="2">2ª Era</option><option value="3">3ª Era</option></select></label><label>Dia (opcional)<input id="timelineDay" type="number" min="1" max="72" step="1"><output id="timelineDayPreview" class="date-preview">Sem data definida</output></label><label>Mês<select id="timelineMonth"></select></label></div><label>Título<input id="timelineTitle" required maxlength="120"></label><label>Registro<textarea id="timelineDescription" rows="6" maxlength="1800"></textarea></label><fieldset class="reference-field"><legend>Vínculos narrativos</legend><p>Associe este marco a descobertas, personagens, salas ou outros registros.</p><select id="timelineReferences" multiple hidden></select><div class="reference-picker" data-reference-picker="timelineReferences"></div></fieldset><div class="button-row"><button class="button primary" type="submit">Salvar registro</button><button class="button ghost" id="cancelTimelineEdit" type="button">Cancelar</button></div></form></section>
+          <section class="panel form-panel" id="timelineEditorPanel" hidden><form class="stacked-form" id="timelineForm"><input type="hidden" id="timelineId"><div class="form-row"><label>Tipo<select id="timelineType"><option value="session">Sessão</option><option value="discovery">Descoberta</option><option value="decision">Decisão</option></select></label><label>Era<select id="timelineEra"><option value="1">1ª Era</option><option value="2">2ª Era</option><option value="3">3ª Era</option></select></label><label>Dia (opcional)<input id="timelineDay" type="number" min="1" max="72" step="1"><output id="timelineDayPreview" class="date-preview">Sem data definida</output></label><label>Mês<select id="timelineMonth"></select></label></div><label>Título<input id="timelineTitle" required maxlength="120"></label><label>Registro<textarea id="timelineDescription" rows="6" maxlength="1800"></textarea></label><div class="button-row"><button class="button primary" type="submit">Salvar registro</button><button class="button ghost" id="cancelTimelineEdit" type="button">Cancelar</button></div></form></section>
           <section class="panel"><div class="toolbar split"><input id="timelineSearch" type="search" placeholder="Buscar na linha do tempo"><select id="timelineEraFilter"><option value="all">Todas as eras</option><option value="1">1ª Era</option><option value="2">2ª Era</option><option value="3">3ª Era</option></select><select id="timelineTypeFilter"><option value="all">Todos os registros</option><option value="session">Sessões</option><option value="discovery">Descobertas</option><option value="decision">Decisões</option></select></div><div class="timeline-eras" id="timelineList"></div></section>
           <dialog id="timelineEntryModal" class="timeline-entry-dialog"><div id="timelineEntryDetail"></div></dialog>
         </section>
 
         <section class="view" id="view-trophies">
           <section class="panel campaign-intro"><div class="section-header"><div><p class="eyebrow">Salão da memória</p></div><button class="button primary" id="toggleTrophyComposer" type="button">Adicionar conquista</button></div><p class="muted">Conquistas que permanecerão gravadas nas muralhas da casa.</p></section>
-          <section class="panel form-panel" id="trophyEditorPanel" hidden data-admin-only="true"><form class="stacked-form" id="trophyForm"><input type="hidden" id="trophyId"><label>Imagem<input id="trophyImageUpload" type="file" accept="image/*"><input id="trophyImage" type="hidden"></label><div class="image-preview" id="trophyImagePreview"></div><div class="form-row"><label>Título<input id="trophyTitle" required maxlength="120"></label><label>Categoria<input id="trophyCategory" maxlength="60" placeholder="Vitória, relíquia, pacto..."></label><label>Raridade<select id="trophyRarity"><option value="notable">Notável</option><option value="epic">Épico</option><option value="legendary">Lendário</option></select></label><label>Dia (opcional)<input id="trophyDay" type="number" min="1" max="72" step="1"></label><label>Mês<select id="trophyMonth"></select></label></div><fieldset class="trophy-recipient-field"><legend>Conquista concedida a</legend><label class="checkbox-row"><input id="trophyAwardGroup" type="checkbox" checked>Minimus Legio (grupo todo)</label><div id="trophyRecipientOptions"></div></fieldset><label class="checkbox-row"><input id="trophyFeatured" type="checkbox"> Exibir como conquista em destaque</label><label>História<textarea id="trophyDescription" rows="6" maxlength="1800"></textarea></label><fieldset class="reference-field"><legend>Vínculos narrativos</legend><p>Mostre quais feitos, lugares ou personagens tornaram esta conquista possível.</p><select id="trophyReferences" multiple hidden></select><div class="reference-picker" data-reference-picker="trophyReferences"></div></fieldset><div class="button-row"><button class="button primary" type="submit">Guardar troféu</button><button class="button ghost" id="cancelTrophyEdit" type="button">Cancelar</button></div></form></section>
+          <section class="panel form-panel" id="trophyEditorPanel" hidden data-admin-only="true"><form class="stacked-form" id="trophyForm"><input type="hidden" id="trophyId"><label>Imagem<input id="trophyImageUpload" type="file" accept="image/*"><input id="trophyImage" type="hidden"></label><div class="image-preview" id="trophyImagePreview"></div><div class="form-row"><label>Título<input id="trophyTitle" required maxlength="120"></label><label>Categoria<input id="trophyCategory" maxlength="60" placeholder="Vitória, relíquia, pacto..."></label><label>Raridade<select id="trophyRarity"><option value="notable">Notável</option><option value="epic">Épico</option><option value="legendary">Lendário</option></select></label><label>Dia (opcional)<input id="trophyDay" type="number" min="1" max="72" step="1"></label><label>Mês<select id="trophyMonth"></select></label></div><fieldset class="trophy-recipient-field"><legend>Conquista concedida a</legend><label class="checkbox-row"><input id="trophyAwardGroup" type="checkbox" checked>Minimus Legio (grupo todo)</label><div id="trophyRecipientOptions"></div></fieldset><label class="checkbox-row"><input id="trophyFeatured" type="checkbox"> Exibir como conquista em destaque</label><label>História<textarea id="trophyDescription" rows="6" maxlength="1800"></textarea></label><div class="button-row"><button class="button primary" type="submit">Guardar troféu</button><button class="button ghost" id="cancelTrophyEdit" type="button">Cancelar</button></div></form></section>
           <section class="panel trophy-wall-panel"><div class="toolbar trophy-toolbar"><input id="trophySearch" type="search" placeholder="Buscar troféus"><div class="trophy-filter-chips" id="trophyRarityFilters" aria-label="Filtrar por raridade"><button class="active" type="button" data-rarity="all">Todos</button><button type="button" data-rarity="legendary">Lendário</button><button type="button" data-rarity="epic">Épico</button><button type="button" data-rarity="notable">Notável</button></div></div><div class="trophy-gallery" id="trophyList"></div></section>
           <div class="journey-modal" id="trophyModal" hidden><button class="journey-modal-backdrop" type="button" data-action="close-trophy" aria-label="Fechar troféu"></button><section class="journey-modal-panel" aria-label="Detalhe do troféu"><div id="trophyDetail"></div></section></div>
         </section>
@@ -1102,9 +1099,10 @@
           </label>
           <label>
             PIN de acesso
-            <input id="accessPin" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="20" required>
+            <input id="accessPin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="20" required>
           </label>
-          <button class="button primary" type="submit">Entrar</button>
+          <label class="checkbox-row"><input id="rememberSession" type="checkbox" checked> Manter conectado</label>
+            <button class="button primary" type="submit">Entrar</button>
         </form>
       </section>
     </div>

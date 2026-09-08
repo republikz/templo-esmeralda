@@ -20,6 +20,7 @@ function headers(config, extra = {}) {
 }
 
 export async function readStateRow(env) {
+  if (env.LOCAL_STORE) return env.LOCAL_STORE.read();
   const config = getConfig(env);
   if (!config.supabaseUrl || !config.serviceKey) {
     throw new Error("Configuração do Supabase ausente.");
@@ -34,6 +35,7 @@ export async function readStateRow(env) {
 }
 
 export async function writeStateRow(env, state, expectedRevision) {
+  if (env.LOCAL_STORE) return env.LOCAL_STORE.write(state, expectedRevision);
   const config = getConfig(env);
   if (!config.supabaseUrl || !config.serviceKey) {
     throw new Error("Configuração do Supabase ausente.");

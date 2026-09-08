@@ -136,6 +136,7 @@ let trophyRarityFilter = "all";
 let npcDispositionFilter = "all";
 
 function isLocalDevelopmentHost() {
+  if (document.querySelector('meta[name="server-auth"]')?.content === "true") return false;
   const host = window.location.hostname;
   return host === "localhost"
     || host === "127.0.0.1"
@@ -207,7 +208,9 @@ function getCachedValue(cacheEntry, key, factory) {
   return value;
 }
 
+let remoteRenderInProgress = false;
 function setHtmlIfChanged(element, html) {
+  if (remoteRenderInProgress && element?.querySelector('form[data-dirty="true"]')) return;
   if (!element || element.__codexHtml === html) {
     return;
   }
@@ -240,11 +243,14 @@ async function init() {
     activeView = hashView;
   }
   bindEvents();
+  document.addEventListener("input", event => { const form = event.target.closest("form"); if (form) form.dataset.dirty = "true"; });
+  document.addEventListener("submit", event => { if (event.target.matches("form")) event.target.dataset.dirty = "false"; }, true);
   initializeDateSelects();
   initializeComposerState();
   restoreSession(false);
   state = await loadSharedState();
   restoreSession();
+  await restoreOutbox();
   populateStaticForms();
   applyActiveViewState();
   applyAuthState();
@@ -548,20 +554,7 @@ function bindEvents() {
   $("#timelineDay")?.addEventListener("input", renderTimelineDayPreview);
   $("#timelineMonth")?.addEventListener("change", renderTimelineDayPreview);
 
-  document.addEventListener("change", handleReferencePickerChange);
-  document.addEventListener("input", handleReferencePickerSearch);
   $("#missionType")?.addEventListener("change", updateMissionFields);
-  document.addEventListener("click", event => {
-    const button = event.target.closest("[data-mission-ref-category], [data-mission-ref-remove]");
-    if (!button) return;
-    const picker = button.closest(".reference-picker");
-    if (button.hasAttribute("data-mission-ref-category")) picker.dataset.category = button.dataset.missionRefCategory;
-    else {
-      const option = [...$("#missionReferences").options].find(item => item.value === button.dataset.missionRefRemove);
-      if (option) option.selected = false;
-    }
-    renderMissionReferencePicker(picker, $("#missionReferences"));
-  });
 
   $("#toggleTrophyComposer")?.addEventListener("click", () => toggleCampaignComposer("trophy", true));
   $("#trophyForm")?.addEventListener("submit", saveTrophy);
@@ -983,7 +976,7 @@ async function loadSeedState() {
 
 async function loadSharedState() {
   const isLocal = isLocalDevelopmentHost();
-  const fallback = isLocal ? await loadLocalState() : null;
+  const fallback = isLocal || sessionToken ? await loadLocalState() : null;
   if (!sessionToken && !isLocal) {
     return emptyState();
   }
@@ -1015,7 +1008,14 @@ async function loadSharedState() {
   }
 
   if (hasMeaningfulState(fallback)) {
+    setSyncedStateBaseline(fallback);
+    updateSaveStatus("offline");
+    showToast("Servidor temporariamente indisponível. Exibindo o cache deste usuário; alterações ficarão pendentes.");
     return fallback;
+  }
+  if (!isLocal) {
+    showToast("Servidor temporariamente indisponível. Sua sessão foi mantida.");
+    return emptyState();
   }
 
   const fresh = isLocal ? freshState() : emptyState();
@@ -1026,11 +1026,12 @@ async function loadSharedState() {
 async function loadLocalState() {
   try {
     await localCacheQueue;
-    const cached = await campaignCacheRequest("readonly", store => store.get("state"));
+    const cached = await campaignCacheRequest("readonly", store => store.get(sessionUserId ? `state:${sessionUserId}` : "state"));
     if (cached) return normalizeState(cached);
   } catch (error) {
     // Retain compatibility with older browser caches when IndexedDB is unavailable.
   }
+  if (!isLocalDevelopmentHost()) return null;
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) {
@@ -1080,19 +1081,8 @@ function normalizeState(value) {
 }
 
 function normalizeReferences(references) {
-  const seen = new Set();
-  return (Array.isArray(references) ? references : [])
-    .map((reference) => {
-      if (typeof reference === "string") return reference.trim();
-      const type = String(reference?.type || "").trim();
-      const id = String(reference?.id || "").trim();
-      return type && id ? `${type}:${id}` : "";
-    })
-    .filter((reference) => {
-      if (!reference || !/^[^:]+:.+$/.test(reference) || seen.has(reference)) return false;
-      seen.add(reference);
-      return true;
-    });
+  // Retired UI metadata remains opaque and lossless when other fields are edited.
+  return Array.isArray(references) ? structuredClone(references) : [];
 }
 
 function normalizeTags(value) {
@@ -1721,49 +1711,71 @@ function normalizeStockEntry(item) {
 
 let localCacheQueue = Promise.resolve();
 let localCacheWarningShown = false;
+let cacheDatabase;
+let queuedCacheState;
 function campaignCacheRequest(mode, action) {
-  return new Promise((resolve, reject) => {
+  if (!cacheDatabase) cacheDatabase = new Promise((resolve, reject) => {
     const open = indexedDB.open("templo-esmeralda-cache", 1);
     open.onupgradeneeded = () => open.result.createObjectStore("campaign");
-    open.onerror = () => reject(open.error);
-    open.onblocked = () => reject(new Error("Cache bloqueado por outra aba."));
+    open.onerror = () => { cacheDatabase = null; reject(open.error); };
+    open.onblocked = () => { cacheDatabase = null; reject(new Error("Cache bloqueado por outra aba.")); };
     open.onsuccess = () => {
       const db = open.result;
-      const transaction = db.transaction("campaign", mode);
-      const request = action(transaction.objectStore("campaign"));
-      transaction.oncomplete = () => { db.close(); resolve(request.result); };
-      transaction.onabort = transaction.onerror = () => { db.close(); reject(transaction.error || request.error); };
+      db.onversionchange = () => { db.close(); cacheDatabase = null; };
+      resolve(db);
     };
   });
+  return cacheDatabase.then(db => new Promise((resolve, reject) => {
+    const transaction = db.transaction("campaign", mode);
+    const request = action(transaction.objectStore("campaign"));
+    transaction.oncomplete = () => resolve(request.result);
+    transaction.onabort = transaction.onerror = () => reject(transaction.error || request.error);
+  }));
+}
+function cacheUnavailable() {
+  if (localCacheWarningShown) return;
+  localCacheWarningShown = true;
+  showToast("Cache local indisponível. Aguarde a confirmação de salvamento antes de sair.");
 }
 function saveLocalState(nextState) {
-  const snapshot = structuredClone(nextState);
-  localCacheQueue = localCacheQueue.then(() => campaignCacheRequest("readwrite", store => store.put(snapshot, "state"))).catch(() => {
-    if (!localCacheWarningShown) {
-      localCacheWarningShown = true;
-      showToast("Cache local indisponível. O salvamento no servidor será tentado separadamente; aguarde a confirmação de sincronização antes de sair.");
-    }
-  });
+  queuedCacheState = { state: nextState, key: sessionUserId ? `state:${sessionUserId}` : "state" };
+  localCacheQueue = localCacheQueue.then(async () => {
+    if (!queuedCacheState) return;
+    const latest = queuedCacheState;
+    queuedCacheState = null;
+    await campaignCacheRequest("readwrite", store => store.put(latest.state, latest.key));
+  }).catch(cacheUnavailable);
   return localCacheQueue;
 }
 
 function getSavableStateSnapshot(nextState) {
-  const snapshot = JSON.parse(JSON.stringify(nextState || {}));
+  const snapshot = structuredClone(nextState || {});
   delete snapshot.activeUserId;
   delete snapshot._changedFields;
   return snapshot;
 }
 
+let lastQueuedStateSnapshot = null;
 function setSyncedStateBaseline(nextState) {
   lastSyncedRevision = Number(nextState?.revision) || 0;
   lastSyncedStateSnapshot = getSavableStateSnapshot(nextState);
+  lastQueuedStateSnapshot = lastSyncedStateSnapshot;
+}
+
+function recordsEqual(left, right) {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every(key => Object.hasOwn(right, key) && recordsEqual(left[key], right[key]));
 }
 
 function changedSinceBaseline(nextState, field) {
   if (!lastSyncedStateSnapshot) {
     return true;
   }
-  return JSON.stringify(nextState?.[field]) !== JSON.stringify(lastSyncedStateSnapshot?.[field]);
+  return !recordsEqual(nextState?.[field], lastSyncedStateSnapshot?.[field]);
 }
 
 function getChangedFieldsForSave(nextState) {
@@ -1786,7 +1798,7 @@ function getChangedRecordIds(nextItems, baselineItems) {
     .filter((item) => item?.id)
     .map((item) => [item.id, item]));
   return (Array.isArray(nextItems) ? nextItems : [])
-    .filter((item) => item?.id && JSON.stringify(item) !== JSON.stringify(baselineById.get(item.id)))
+    .filter((item) => item?.id && !recordsEqual(item, baselineById.get(item.id)))
     .map((item) => item.id);
 }
 
@@ -1805,13 +1817,21 @@ function getChangedJourneyRecords(nextEntries, baselineEntries) {
   (Array.isArray(nextEntries) ? nextEntries : []).forEach((entry) => {
     if (!entry?.id) return;
     const baseline = baselineById.get(entry.id);
-    if (!baseline || JSON.stringify(getJourneyEntryContent(entry)) !== JSON.stringify(getJourneyEntryContent(baseline))) {
+    if (!baseline || !recordsEqual(getJourneyEntryContent(entry), getJourneyEntryContent(baseline))) {
       content.push(entry.id);
     }
     const changedComments = getChangedRecordIds(entry.comments, baseline?.comments);
     if (changedComments.length) comments[entry.id] = changedComments;
   });
   return { content, comments };
+}
+
+function getInvestigationFieldChanges(notes = [], baseline = []) {
+  const previous = new Map(baseline.map(note => [note.id, note]));
+  return Object.fromEntries(notes.map(note => {
+    const old = previous.get(note.id);
+    return [note.id, ["title", "text", "color", "x", "y"].filter(field => !old || note[field] !== old[field])];
+  }).filter(([, fields]) => fields.length));
 }
 
 function getChangedRecordsForSave(nextState) {
@@ -1826,6 +1846,7 @@ function getChangedRecordsForSave(nextState) {
     events: getChangedRecordIds(nextState.events, baseline.events),
     campfireHeroes: getChangedRecordIds(nextState.campfire?.heroes, baseline.campfire?.heroes),
     investigationNotes: getChangedRecordIds(nextState.campfire?.investigationBoard?.notes, baseline.campfire?.investigationBoard?.notes),
+    investigationNoteFields: getInvestigationFieldChanges(nextState.campfire?.investigationBoard?.notes, baseline.campfire?.investigationBoard?.notes),
     investigationLinks: getChangedRecordIds(nextState.campfire?.investigationBoard?.links, baseline.campfire?.investigationBoard?.links),
     journeyEntries: journeyChanges.content,
     journeyEntryContent: journeyChanges.content,
@@ -1930,51 +1951,134 @@ function buildIncrementalSavePayload(nextState, changedFields, changedRecords) {
   return payload;
 }
 
+let mutationQueue = [];
+let mutationWrites = Promise.resolve();
+let outboxOwner = "";
+function updateSaveStatus(status) {
+  let indicator = $("#saveStatus");
+  if (!indicator) {
+    indicator = document.createElement("output");
+    indicator.id = "saveStatus";
+    indicator.className = "save-status";
+    indicator.setAttribute("role", "status");
+    indicator.setAttribute("aria-live", "polite");
+    document.querySelector(".page-header")?.append(indicator);
+    if (!indicator.isConnected) document.body.append(indicator);
+  }
+  indicator.dataset.status = status;
+  indicator.textContent = { saving: "Salvando…", saved: "Salvo", pending: "Alterações pendentes", offline: "Sem conexão · cache local" }[status];
+}
+function outboxKey(item) { return `outbox:${item.userId}:${item.id}`; }
 function saveState(nextState = state, options = {}) {
+  if (!sessionUserId) return;
   nextState.revision = (Number(nextState.revision) || 0) + 1;
   nextState.updatedAt = Date.now();
-  const changedFields = getChangedFieldsForSave(nextState);
-  const changedRecords = getChangedRecordsForSave(nextState);
-  const snapshot = getSavableStateSnapshot(nextState);
-  // The local PowerShell server is intentionally small and does not implement
-  // Cloudflare's field-aware merge. It must receive a complete snapshot so an
-  // incremental change can never replace the entire local campaign with a
-  // partial payload. Production keeps the incremental transport below.
-  const payloadState = isLocalDevelopmentHost()
-    ? snapshot
-    : buildIncrementalSavePayload(nextState, changedFields, changedRecords);
-  saveLocalState(snapshot);
-  pendingPayload = JSON.stringify(payloadState);
+  const serverBaseline = lastSyncedStateSnapshot;
+  let payloadState;
+  try {
+    lastSyncedStateSnapshot = lastQueuedStateSnapshot || serverBaseline;
+    payloadState = isLocalDevelopmentHost() ? getSavableStateSnapshot(nextState)
+      : buildIncrementalSavePayload(nextState, getChangedFieldsForSave(nextState), getChangedRecordsForSave(nextState));
+  } finally { lastSyncedStateSnapshot = serverBaseline; }
+  lastQueuedStateSnapshot = getSavableStateSnapshot(nextState);
+  const body = JSON.stringify(payloadState);
+  const item = { id: crypto.randomUUID(), userId: sessionUserId, createdAt: Date.now(), baseRevision: lastSyncedRevision || 0 };
+  item.body = body;
+  mutationQueue.push(item);
+  outboxOwner = sessionUserId;
+  pendingPayload = body;
+  const durable = { ...item };
+  mutationWrites = mutationWrites.then(() => campaignCacheRequest("readwrite", store => store.put(durable, outboxKey(durable)))).catch(cacheUnavailable);
+  saveLocalState(nextState);
+  updateSaveStatus("pending");
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushStateSave, options.immediate ? 0 : 350);
 }
-
-async function flushStateSave() {
-  if (saveInFlight || !pendingPayload) {
-    return;
-  }
-  saveInFlight = true;
-  const payload = pendingPayload;
-  pendingPayload = null;
-  const ok = await persistState(payload);
-  saveInFlight = false;
-  if (!ok) {
-    pendingPayload = pendingPayload || payload;
-    if (!lastSaveFailed) {
-      showToast("Falha ao salvar no servidor. Vou tentar novamente em instantes.");
-    }
-    lastSaveFailed = true;
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(flushStateSave, 2500);
-    return;
-  }
-  lastSaveFailed = false;
-  if (pendingPayload) {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(flushStateSave, 120);
-  }
+async function restoreOutbox() {
+  if (!sessionUserId) return;
+  const owner = sessionUserId;
+  await mutationWrites;
+  try {
+    const prefix = `outbox:${owner}:`;
+    const items = await campaignCacheRequest("readonly", store => store.getAll(IDBKeyRange.bound(prefix, prefix + "\uffff")));
+    if (sessionUserId !== owner) return;
+    mutationQueue = items.sort((a, b) => a.createdAt - b.createdAt).map(item => ({ ...item, sending: false }));
+    outboxOwner = owner;
+    for (const item of mutationQueue) applyPendingDelta(JSON.parse(item.body));
+    lastQueuedStateSnapshot = getSavableStateSnapshot(state);
+    pendingPayload = mutationQueue.at(-1)?.body || null;
+    if (pendingPayload) { updateSaveStatus("pending"); void flushStateSave(); }
+  } catch { cacheUnavailable(); }
 }
-
+function applyPendingDelta(delta) {
+  if (isLocalDevelopmentHost()) { state = normalizeState(delta); applySessionToState(); return; }
+  const merge = (current = [], incoming = []) => {
+    const byId = new Map(current.map(item => [item.id, item]));
+    incoming.forEach(item => byId.set(item.id, { ...byId.get(item.id), ...item }));
+    return [...byId.values()];
+  };
+  for (const field of delta._changedFields || []) {
+    if (field === "campfire.legionNotes") state.campfire.legionNotes = delta.campfire.legionNotes;
+    else state[field] = delta[field];
+  }
+  for (const field of ["rooms", "npcs", "financeSources", "ledger", "faithTransactions", "events", "missions", "timeline", "trophies"]) state[field] = merge(state[field], delta[field]);
+  state.campfire.heroes = merge(state.campfire.heroes, delta.campfire?.heroes);
+  const board = state.campfire.investigationBoard;
+  for (const note of delta.campfire?.investigationBoard?.notes || []) {
+    const existing = board.notes.find(item => item.id === note.id);
+    if (!existing) board.notes.push(note);
+    else for (const field of delta._changedRecords?.investigationNoteFields?.[note.id] || []) existing[field] = note[field];
+  }
+  board.links = merge(board.links, delta.campfire?.investigationBoard?.links);
+  for (const incoming of delta.journey?.entries || []) {
+    const existing = state.journey.entries.find(entry => entry.id === incoming.id);
+    if (!existing) state.journey.entries.push(incoming);
+    else {
+      const comments = merge(existing.comments, incoming.comments);
+      if (delta._changedRecords?.journeyEntryContent?.includes(incoming.id)) Object.assign(existing, incoming);
+      existing.comments = comments;
+    }
+  }
+  state.journey.reads = merge(state.journey.reads, delta.journey?.reads);
+  for (const floor of delta.baseMap?.floors || []) {
+    const existing = state.baseMap.floors.find(item => item.id === floor.id);
+    if (existing) existing.zones = merge(existing.zones, floor.zones);
+  }
+  state.deletedRecords = [...(state.deletedRecords || []), ...(delta.deletedRecords || [])];
+  state = normalizeState(state);
+  applySessionToState();
+}
+async function flushStateSave() {
+  if (saveInFlight || !mutationQueue.length || !sessionUserId || outboxOwner !== sessionUserId) return;
+  const item = mutationQueue[0];
+  if (item.userId !== sessionUserId) return;
+  saveInFlight = true;
+  item.sending = true;
+  item.attempted = true;
+  mutationWrites = mutationWrites.then(() => campaignCacheRequest("readwrite", store => store.put({ ...item }, outboxKey(item)))).catch(cacheUnavailable);
+  updateSaveStatus("saving");
+  await mutationWrites;
+  const ok = await persistState(item.body, item);
+  saveInFlight = false;
+  item.sending = false;
+  if (sessionUserId !== item.userId) {
+    if (mutationQueue.length) saveTimer = setTimeout(flushStateSave, 120);
+    return;
+  }
+  if (!ok) {
+    lastSaveFailed = true;
+    updateSaveStatus("pending");
+    clearTimeout(saveTimer);
+    if (sessionUserId) saveTimer = setTimeout(flushStateSave, 2500);
+    return;
+  }
+  mutationQueue = mutationQueue.filter(candidate => candidate.id !== item.id);
+  try { await campaignCacheRequest("readwrite", store => store.delete(outboxKey(item))); } catch { cacheUnavailable(); }
+  lastSaveFailed = false;
+  pendingPayload = mutationQueue.at(-1)?.body || null;
+  updateSaveStatus(pendingPayload ? "pending" : "saved");
+  if (pendingPayload) saveTimer = setTimeout(flushStateSave, 120);
+}
 function saveSession() {
   try {
     if (sessionUserId && (sessionToken || isLocalDevelopmentHost())) {
@@ -2022,6 +2126,11 @@ function restoreSession(usersLoaded = true) {
 }
 
 function clearSession() {
+  clearTimeout(saveTimer);
+  mutationQueue = [];
+  pendingPayload = null;
+  outboxOwner = "";
+  lastQueuedStateSnapshot = null;
   sessionUserId = null;
   sessionToken = null;
   sessionExpiresAt = 0;
@@ -2067,23 +2176,26 @@ function applyAuthState() {
 }
 
 
-async function persistState(payload) {
+async function persistState(payload, mutation = {}) {
+  const owner = sessionUserId;
   if (!sessionToken && !isLocalDevelopmentHost()) return false;
   try {
     const response = await fetch(STATE_API_URL, {
       method: "PUT",
       headers: authHeaders({
         "Content-Type": "application/json",
-        "X-Base-Revision": String(lastSyncedRevision || 0),
+        "X-Base-Revision": String(mutation.baseRevision ?? lastSyncedRevision ?? 0),
+        "X-Mutation-Id": mutation.id || "",
         ...(isLocalDevelopmentHost() ? { "X-Local-State-Snapshot": "1" } : {})
       }),
       keepalive: payload.length < 60000,
       body: payload
     });
+    if (sessionUserId !== owner) return false;
     if (response.status === 401) {
       clearSession();
       applyAuthState();
-      render();
+      render({ remote: true });
       showToast("Sua sessão expirou. Entre novamente.");
       return false;
     }
@@ -2093,13 +2205,13 @@ async function persistState(payload) {
     const text = await response.text();
     if (text.trim()) {
       const serverState = normalizeState(JSON.parse(text));
-      setSyncedStateBaseline(serverState);
-      if (!pendingPayload && !investigationDragState && !timelineDrag) {
+      if (mutationQueue.length <= 1) setSyncedStateBaseline(serverState);
+      if (mutationQueue.length <= 1 && !investigationDragState && !timelineDrag) {
         state = serverState;
         saveLocalState(state);
         applySessionToState();
         renderPermissions();
-        render();
+        render({ remote: true });
       }
     }
     return true;
@@ -2146,6 +2258,8 @@ function requestStateSync(options = {}) {
 }
 
 async function syncStateFromServer() {
+  const owner = sessionUserId;
+  const token = sessionToken;
   if (!sessionToken && !isLocalDevelopmentHost()) return;
   if (syncInFlight || saveInFlight || pendingPayload || investigationDragState || timelineDrag) {
     return;
@@ -2162,10 +2276,11 @@ async function syncStateFromServer() {
       cache: "no-store",
       headers: authHeaders(revision ? { "If-None-Match": `\"state-${revision}\"` } : {})
     });
+    if (sessionUserId !== owner || sessionToken !== token || pendingPayload || saveInFlight) return;
     if (response.status === 401) {
       clearSession();
       applyAuthState();
-      render();
+      render({ remote: true });
       return;
     }
     if (response.status === 304) {
@@ -2186,11 +2301,11 @@ async function syncStateFromServer() {
       const upgradesApplied = applyCompletedRoomUpgrades({ silent: true });
       setSyncedStateBaseline(state);
       saveLocalState(state);
-      applySessionToState();
+      applyAuthState();
       if (upgradesApplied) {
         saveState();
       }
-      render();
+      render({ remote: true });
       showToast("Dados sincronizados com a mesa.");
     }
   } catch (error) {
@@ -2261,7 +2376,31 @@ function applyActiveViewState() {
   $("#viewTitle").textContent = viewTitles[activeView];
 }
 
-function render() {
+function domainRevision(domain) {
+  const stamp = (items = []) => items.map(item => [item.id, item.updatedAt || item.createdAt || 0, item.status || "", item.amount || 0]);
+  const journey = () => [stamp(state.journey.entries), state.journey.entries.map(entry => stamp(entry.comments)), stamp(state.journey.reads)];
+  const domains = {
+    heroes: () => [stamp(state.campfire.heroes), state.campfire.heroes.map(hero => stamp(hero.goals)), stamp(state.trophies)],
+    faith: () => stamp(state.faithTransactions),
+    market: () => [state.market.lastRestockDay, state.market],
+    calendar: () => [state.currentDay, stamp(state.events), stamp(state.financeSources), stamp(state.ledger), stamp(state.rooms)],
+    finance: () => [state.startingBalanceCopper, state.currentDay, stamp(state.financeSources), stamp(state.ledger)],
+    rooms: () => [state.currentDay, stamp(state.rooms)],
+    npcs: () => stamp(state.npcs),
+    journey,
+    campfire: () => [stamp(state.campfire.heroes), state.campfire.heroes.map(hero => stamp(hero.goals)), stamp(state.campfire.investigationBoard.notes), stamp(state.campfire.investigationBoard.links)],
+    map: () => state.baseMap.floors.map(floor => [floor.id, stamp(floor.zones)]),
+    missions: () => stamp(state.missions),
+    timeline: () => stamp(state.timeline),
+    trophies: () => [stamp(state.trophies), stamp(state.campfire.heroes)],
+    dashboard: () => [state.currentDay, stamp(state.ledger), state.market.lastRestockDay]
+  };
+  return JSON.stringify([getActiveUserId(), isAdmin(), (domains[domain] || (() => state.revision))()]);
+}
+
+function render(options = {}) {
+  remoteRenderInProgress = options.remote === true;
+  try {
   if (applyCompletedRoomUpgrades({ silent: true })) {
     saveState();
   }
@@ -2316,6 +2455,7 @@ function render() {
       renderDashboard();
       break;
   }
+  } finally { remoteRenderInProgress = false; }
 }
 
 function renderPermissions() {
@@ -2475,7 +2615,7 @@ function renderDashboardCalendar() {
   $("#dashboardCalendarCount").textContent = `${entriesByDay.size} dia${entriesByDay.size === 1 ? "" : "s"} com registro`;
   setHtmlIfChanged($("#dashboardCalendarAgenda"), [...entriesByDay].sort(([a], [b]) => a - b).map(([day, items]) => `<section class="dashboard-agenda-day"><button type="button" data-action="open-calendar-day" data-day="${items[0].day}">${escapeHtml(formatCalendarDate(items[0].day))}</button><ul>${items.map(item => `<li>${renderDashboardCalendarEntry(item)}<span>${escapeHtml(item.title)}${item.amountCopper ? ` · ${formatCopper(item.amountCopper)}` : ""}</span></li>`).join("")}</ul></section>`).join(""));
 
-  const key = getCacheKey(state.revision, currentYear, currentMonth);
+  const key = getCacheKey(domainRevision("calendar"), currentYear, currentMonth);
     const html = getCachedValue(renderCache.dashboardCalendarHtml, key, () => Array.from({ length: DAYS_PER_MONTH }, (_, index) => index + 1).map((day) => {
       const dayEntries = (entriesByDay.get(day) || []).sort((a, b) => a.day - b.day || a.title.localeCompare(b.title, "pt-BR"));
       const isToday = currentParts.dayOfMonth === day;
@@ -2808,7 +2948,7 @@ function handleRoomAction(event) {
 function renderRooms() {
   const query = ($("#roomSearch")?.value || "").trim().toLowerCase();
   const filter = $("#roomFilter")?.value || "all";
-  const key = getCacheKey(state.revision, query, filter, isAdmin());
+  const key = getCacheKey(domainRevision("rooms"), query, filter, isAdmin());
   const rooms = getCachedValue(renderCache.roomsHtml, key, () => state.rooms
     .filter((room) => {
       const haystack = `${room.name} ${room.type} ${room.status} ${room.bonus} ${room.usage} ${room.description} ${room.upgradeInfo || ""} ${room.upgradeBonus || ""} ${room.upgradeUsage || ""}`.toLowerCase();
@@ -3084,7 +3224,7 @@ function renderNpcs() {
     selectedNpcId = "";
     npcModalEditId = "";
   }
-  const key = getCacheKey(state.revision, query, roleFilter, sort, selectedNpcId, npcModalEditId, isAdmin());
+  const key = getCacheKey(domainRevision("npcs"), query, roleFilter, sort, selectedNpcId, npcModalEditId, isAdmin());
   let npcs = getCachedValue(renderCache.npcsHtml, key, () => state.npcs.filter((npc) => {
     const haystack = `${npc.name} ${npc.role} ${npc.tags} ${npc.summary} ${npc.description}`.toLowerCase();
     return (!query || haystack.includes(query)) && (roleFilter === "all" || getNpcDisposition(npc).key === roleFilter);
@@ -3108,7 +3248,7 @@ function renderNpcs() {
     : renderEmpty("Nenhum NPC encontrado", "A lista de NPCs não tem resultados para os filtros atuais.");
   setHtmlIfChanged(list, html + (isAdmin() ? `<button class="npc-new-face" type="button" data-action="new-npc"><span aria-hidden="true">+</span><span>Novo rosto na base</span></button>` : ""));
   const selectedNpc = selectedNpcId ? state.npcs.find((npc) => npc.id === selectedNpcId) : null;
-  const detailKey = getCacheKey(state.revision, selectedNpc?.id || "none", selectedNpc?.updatedAt || 0, npcModalEditId, isAdmin());
+  const detailKey = getCacheKey(domainRevision("npcs"), selectedNpc?.id || "none", selectedNpc?.updatedAt || 0, npcModalEditId, isAdmin());
   const detailHtml = getCachedValue(renderCache.npcDetailHtml, detailKey, () => renderNpcDetail(selectedNpc));
   setHtmlIfChanged(detail, detailHtml);
   modal.hidden = !selectedNpc;
@@ -3364,7 +3504,7 @@ function renderFinance() {
   $("#financeRecurringNet").textContent = `${flow.net < 0 ? "−" : "+"}${formatCopper(Math.abs(flow.net))}`;
   setDateInputs("ledgerDay", "ledgerMonth", state.currentDay);
 
-  const sourceKey = getCacheKey(state.revision, isAdmin());
+  const sourceKey = getCacheKey(domainRevision("finance"), isAdmin());
   const sourceHtml = getCachedValue(renderCache.financeSourcesHtml, sourceKey, () => state.financeSources.length
     ? [...state.financeSources]
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
@@ -3650,7 +3790,7 @@ function renderLedgerTable() {
       </tr>
     `);
 
-  const html = getCachedValue(renderCache.ledgerRowsHtml, getCacheKey(state.revision, rows.length), () => rows.length
+  const html = getCachedValue(renderCache.ledgerRowsHtml, getCacheKey(domainRevision("finance"), rows.length), () => rows.length
     ? rows.join("")
     : `<tr><td colspan="5">Sem movimentos registrados.</td></tr>`);
   setHtmlIfChanged($("#ledgerTable"), html);
@@ -3701,7 +3841,7 @@ function renderCalendar() {
     ].join("");
     setHtmlIfChanged($("#calendarSummary"), summaryHtml);
 
-  const key = getCacheKey(state.revision, getCampaignYear(state.currentDay), selectedCalendarMonthIndex, selectedCalendarDay, isAdmin());
+  const key = getCacheKey(domainRevision("calendar"), getCampaignYear(state.currentDay), selectedCalendarMonthIndex, selectedCalendarDay, isAdmin());
   const monthsHtml = getCachedValue(renderCache.calendarMonthsHtml, key, () => renderCalendarMonthGrid(entries));
   setHtmlIfChanged($("#calendarMonths"), monthsHtml);
   setHtmlIfChanged($("#calendarDayPanel"), renderCalendarDayPanel(entries));
@@ -4136,7 +4276,7 @@ function renderMarketCategoryOptions() {
   }
   const current = select.value || "all";
   const categories = unique(getCombinedMarketStock().map((item) => item.category).filter(Boolean)).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const key = getCacheKey(state.revision, categories.join("\u0001"));
+  const key = getCacheKey(domainRevision("market"), categories.join("\u0001"));
   const html = getCachedValue(renderCache.marketCategoryHtml, key, () => `<option value="all">Todas as categorias</option>${categories.map((category) => `<option value="${escapeAttr(category)}">${escapeHtml(category)}</option>`).join("")}`);
   if (select.__codexHtml !== html) {
     select.__codexHtml = html;
@@ -4165,7 +4305,7 @@ function renderMarketSection(section, listId, labelId) {
   if (!container) {
     return;
   }
-  const key = getCacheKey(state.revision, section, $("#marketSearch")?.value || "", $("#marketRarityFilter")?.value || "all", $("#marketCategoryFilter")?.value || "all", $("#marketSort")?.value || "level", isAdmin());
+  const key = getCacheKey(domainRevision("market"), section, $("#marketSearch")?.value || "", $("#marketRarityFilter")?.value || "all", $("#marketCategoryFilter")?.value || "all", $("#marketSort")?.value || "level", isAdmin());
   const cache = renderCache.marketSectionHtml[section];
   const result = getCachedValue(cache, key, () => {
     const stock = getFilteredMarketStock(section);
@@ -4490,6 +4630,7 @@ async function handleAccessSubmit(event) {
   event.preventDefault();
   const name = $("#accessName").value.trim();
   const pin = $("#accessPin").value.trim();
+  const remember = $("#rememberSession")?.checked !== false;
   if (!name || !pin) {
     showToast("Informe nome e PIN para acessar.");
     return;
@@ -4505,8 +4646,10 @@ async function handleAccessSubmit(event) {
     if (!existing) state.users.push(user);
     sessionUserId = user.id;
     state.activeUserId = user.id;
+    sessionExpiresAt = Date.now() + (remember ? 30 * 24 : 8) * 60 * 60 * 1000;
     saveSession();
     if (!existing) saveState();
+    else await restoreOutbox();
     applyAuthState();
     render();
     showToast(`Bem-vindo, ${user.name}.`);
@@ -4516,7 +4659,7 @@ async function handleAccessSubmit(event) {
     const response = await fetch(`${AUTH_API_BASE}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, pin })
+      body: JSON.stringify({ name, pin, remember })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.token || !result.user?.id) {
@@ -4529,6 +4672,7 @@ async function handleAccessSubmit(event) {
     saveSession();
     state = await loadSharedState();
     state.activeUserId = sessionUserId;
+    await restoreOutbox();
     applyAuthState();
     render();
     showToast(`Bem-vindo, ${result.user.name}.`);
@@ -5106,14 +5250,14 @@ function renderDashboard() {
   renderDashboardCalendar();
   renderDashboardJourney();
   const marketStock = getCombinedMarketStock();
-  const marketKey = getCacheKey(state.revision, marketStock.length, state.market.lastRestockDay);
+  const marketKey = getCacheKey(domainRevision("dashboard"), marketStock.length, state.market.lastRestockDay);
   const marketHtml = getCachedValue(renderCache.dashboardMarketHtml, marketKey, () => marketStock.length
     ? `<div class="market-shelf-grid">${marketStock.slice(0, 6).map(renderDashboardMarketItem).join("")}</div>
        <footer><span>${marketStock.length} item${marketStock.length === 1 ? "" : "s"} na vitrine</span><strong>Renova em ${formatCalendarDate(getNextMarketDay())}</strong></footer>`
     : renderEmpty("Portas fechadas", "O Mercado Esmeralda ainda não recebeu seu estoque desta semana."));
   setHtmlIfChanged($("#dashboardMarketList"), marketHtml);
   const recent = [...state.ledger].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
-  const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(state.revision, recent.length, "dashboard-ledger"), () => recent.length
+  const recentHtml = getCachedValue(renderCache.recentLedgerHtml, getCacheKey(domainRevision("dashboard"), recent.length, "dashboard-ledger"), () => recent.length
     ? renderDashboardDateGroups(recent, entry => entry.day, entry => formatCalendarDate(entry.day), entry => `<article class="dashboard-ledger-row ${entry.type === "income" ? "income" : "expense"}"><strong>${escapeHtml(entry.name)}</strong><span>${entry.type === "income" ? "↗ +" : "↘ −"}${formatCopper(entry.amountCopper)}</span></article>`)
     : renderEmpty("Sem movimentos", "Os registros do tesouro ainda não receberam movimentos."));
   setHtmlIfChanged($("#recentLedger"), recentHtml);
@@ -5143,7 +5287,7 @@ function renderDashboardHero() {
       || (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
       || a.id.localeCompare(b.id))
     .slice(0, 4);
-  const heroKey = getCacheKey(state.revision, hero.id, hero.updatedAt, visibleGoals.length, trophies.map((item) => [item.id, item.title, item.image, item.rarity]));
+  const heroKey = getCacheKey(domainRevision("heroes"), hero.id, hero.updatedAt, visibleGoals.length, trophies.map((item) => [item.id, item.title, item.image, item.rarity]));
   const html = getCachedValue(renderCache.dashboardHeroHtml, heroKey, () => `
     <div class="dashboard-hero-portrait ${hero.image ? "has-image" : ""}">
       ${hero.image ? `<img src="${escapeAttr(hero.image)}" alt="${escapeAttr(hero.characterName)}" width="360" height="480" loading="eager" decoding="async">` : `<span>${escapeHtml(getInitials(hero.characterName))}</span>`}
@@ -5234,7 +5378,7 @@ function renderDashboardFaith() {
     })
     .join("");
   const canUse = Boolean(activeUser && points > 0);
-  const faithKey = getCacheKey(state.revision, activeUser?.id || "", points, dashboardFaithExpanded, faithUseConfirmOpen);
+  const faithKey = getCacheKey(domainRevision("faith"), activeUser?.id || "", points, dashboardFaithExpanded, faithUseConfirmOpen);
   const confirmHtml = faithUseConfirmOpen
     ? `<div class="faith-confirm" role="alert">
         <strong>Entregar este pedido ao divino?</strong>
@@ -5324,7 +5468,7 @@ function renderDashboardJourney() {
   const entries = [...state.journey.entries]
     .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0) || a.title.localeCompare(b.title, "pt-BR"))
     .slice(0, 4);
-  const key = getCacheKey(state.revision, entries.map((entry) => `${entry.id}:${entry.createdAt}:${entry.updatedAt}`).join(","));
+  const key = getCacheKey(domainRevision("journey"), entries.map((entry) => `${entry.id}:${entry.createdAt}:${entry.updatedAt}`).join(","));
   const html = getCachedValue(renderCache.dashboardJourneyHtml, key, () => entries.length
     ? renderDashboardDateGroups(entries, entry => new Date(Number(entry.createdAt) || 0).toLocaleDateString("pt-BR"), entry => new Date(Number(entry.createdAt) || 0).toLocaleDateString("pt-BR", { day:"2-digit", month:"long", year:"numeric" }), entry => renderDashboardJourneyCard(entry, { showUnread: false }))
     : renderEmpty("Jornada vazia", "As novas lembranças da mesa aparecerão aqui."));
@@ -5336,7 +5480,7 @@ function renderDashboardJourney() {
     .sort((a, b) => Math.max(...b.comments.map(getJourneyCommentStamp)) - Math.max(...a.comments.map(getJourneyCommentStamp)) || a.entry.title.localeCompare(b.entry.title, "pt-BR"))
     .slice(0, 4);
   const commentsKey = getCacheKey(
-    state.revision,
+    domainRevision("journey"),
     getActiveUserId() || "",
     unreadEntries.map(({ entry, comments }) => `${entry.id}:${comments.length}:${Math.max(...comments.map(getJourneyCommentStamp))}`).join(",")
   );
@@ -5353,7 +5497,7 @@ function renderDashboardJourneyCard(entry, options = {}) {
     : "";
   return `
     <button class="dashboard-journey-card ${unreadCount ? "has-unread" : ""}" type="button" data-action="open-journey-entry" data-id="${escapeAttr(entry.id)}">
-      <span class="dashboard-journey-memory">${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}</span>
+      <span class="dashboard-journey-memory">${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async" width="400" height="500">` : `<span class="journey-image-placeholder">Sem imagem</span>`}</span>
       <span class="dashboard-journey-copy"><strong>${escapeHtml(entry.title)}</strong><small>Nível ${escapeHtml(entry.level)}</small><p>${escapeHtml(String(entry.description || "Sem descrição.").slice(0, 150))}</p></span>
       ${unreadBadge}
     </button>
@@ -5422,8 +5566,6 @@ function renderJourney() {
   if (!gallery || !detail || !modal) {
     return;
   }
-  const journeyReferences = $("#journeyReferences");
-  if (journeyReferences && !journeyReferences.options.length) journeyReferences.innerHTML = getCampaignReferenceOptions();
   const entries = getFilteredJourneyEntries();
   setHtmlIfChanged($("#journeyCategoryChips"), [["all", "Todos"], ...Object.entries(JOURNEY_CATEGORIES)].map(([key, label]) => `<button type="button" class="journey-filter category-${key}" data-journey-category="${key}" aria-pressed="${$("#journeyCategoryFilter").value === key}"><i class="journey-category-icon" aria-hidden="true"></i>${escapeHtml(label)}</button>`).join(""));
   $$("[data-journey-sort]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.journeySort === $("#journeySort").value)));
@@ -5445,18 +5587,96 @@ function renderJourney() {
     journeyModalEditId = "";
     journeyCommentEditId = "";
   }
-  const key = getCacheKey(state.revision, $("#journeySearch")?.value || "", $("#journeyCategoryFilter")?.value || "all", $("#journeySort")?.value || "name", selectedJourneyEntryId, journeyModalEditId, journeyCommentEditId, getActiveUserId(), isAdmin());
-  const galleryHtml = getCachedValue(renderCache.journeyGalleryHtml, key, () => entries.length
-    ? entries.map(renderJourneyCard).join("")
-    : renderEmpty("Jornada vazia", "Adicione uma imagem, um nome e uma descrição para começar o diário da mesa."));
-  setHtmlIfChanged(gallery, galleryHtml);
+  reconcileJourneyGallery(gallery, entries);
   const selectedEntry = selectedJourneyEntryId ? state.journey.entries.find((entry) => entry.id === selectedJourneyEntryId) : null;
   const commentsStamp = selectedEntry?.comments?.reduce((max, comment) => Math.max(max, Number(comment.updatedAt) || Number(comment.createdAt) || 0), 0) || 0;
-  const detailKey = getCacheKey(state.revision, selectedEntry?.id || "none", selectedEntry?.updatedAt || 0, selectedEntry?.comments.length || 0, commentsStamp, journeyModalEditId, journeyCommentEditId, getActiveUserId(), isAdmin());
+  const detailKey = getCacheKey(domainRevision("journey"), selectedEntry?.id || "none", selectedEntry?.updatedAt || 0, selectedEntry?.comments.length || 0, commentsStamp, journeyModalEditId, journeyCommentEditId, getActiveUserId(), isAdmin());
   const detailHtml = getCachedValue(renderCache.journeyDetailHtml, detailKey, () => renderJourneyDetail(selectedEntry));
-  setHtmlIfChanged(detail, detailHtml);
+  const editorKey = `${selectedEntry?.id || ""}:${journeyModalEditId}:${journeyCommentEditId}`;
+  const editingSameEntry = detail.dataset.editorKey === editorKey && Boolean(detail.querySelector('form[data-dirty="true"]'));
+  if (!editingSameEntry) setHtmlIfChanged(detail, detailHtml);
+  detail.dataset.editorKey = editorKey;
   modal.hidden = !selectedEntry;
   document.body.classList.toggle("journey-modal-open", Boolean(selectedEntry));
+}
+
+
+const journeySearchIndex = new WeakMap();
+const journeyCardMarkup = new WeakMap();
+let journeyLayoutObserver;
+let journeyLayoutState = { key: "", ids: [], columns: 0 };
+function journeyPhotoRatio(id) {
+  const hash = [...String(id)].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return [0.8, 1, 1.2][hash % 3];
+}
+function reconcileJourneyGallery(gallery, entries) {
+  const key = getCacheKey($("#journeySearch")?.value, $("#journeySort")?.value, $("#journeyCategoryFilter")?.value, getActiveUserId());
+  const count = Math.max(1, Math.min(3, Math.floor((gallery.clientWidth + 26) / 266)));
+  const byId = new Map(entries.map(entry => [entry.id, entry]));
+  const sameQuery = key === journeyLayoutState.key;
+  const ids = sameQuery ? journeyLayoutState.ids.filter(id => byId.has(id)) : [];
+  const known = new Set(ids);
+  entries.forEach(entry => { if (!known.has(entry.id)) ids.push(entry.id); });
+  const nodes = new Map([...gallery.querySelectorAll("[data-journey-id]")].map(node => [node.dataset.journeyId, node]));
+  const reflow = !sameQuery || count !== journeyLayoutState.columns || !gallery.querySelector(".journey-column");
+  if (reflow) {
+    gallery.replaceChildren(...Array.from({ length: count }, () => {
+      const column = document.createElement("div");
+      column.className = "journey-column";
+      return column;
+    }));
+  }
+  nodes.forEach((node, id) => { if (!byId.has(id)) node.remove(); });
+  ids.forEach((id, index) => {
+    const entry = byId.get(id);
+    const html = renderJourneyCard(entry);
+    let node = nodes.get(id);
+    if (!node) {
+      const template = document.createElement("template");
+      template.innerHTML = html.trim();
+      node = template.content.firstElementChild;
+    } else if (journeyCardMarkup.get(node) !== html) {
+      const template = document.createElement("template");
+      template.innerHTML = html.trim();
+      reconcileJourneyElement(node, template.content.firstElementChild);
+    }
+    journeyCardMarkup.set(node, html);
+    // Existing cards stay in their column even when another card disappears.
+    if (reflow || !node.isConnected) gallery.children[index % count].append(node);
+  });
+  gallery.querySelector(".journey-empty")?.remove();
+  if (!ids.length) {
+    const empty = document.createElement("p");
+    empty.className = "journey-empty";
+    empty.textContent = "Nenhuma lembrança encontrada.";
+    gallery.firstElementChild.append(empty);
+  }
+  journeyLayoutState = { key, ids, columns: count };
+  if (!journeyLayoutObserver) {
+    let scheduled = false;
+    journeyLayoutObserver = new ResizeObserver(() => {
+      if (scheduled || !gallery.clientWidth) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        const nextCount = Math.max(1, Math.min(3, Math.floor((gallery.clientWidth + 26) / 266)));
+        if (nextCount !== journeyLayoutState.columns) reconcileJourneyGallery(gallery, getFilteredJourneyEntries());
+      });
+    });
+    journeyLayoutObserver.observe(gallery);
+  }
+}
+function reconcileJourneyElement(current, next) {
+  [...current.attributes].forEach(attr => { if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name); });
+  [...next.attributes].forEach(attr => { if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value); });
+  [...next.childNodes].forEach((child, index) => {
+    const old = current.childNodes[index];
+    if (!old) current.append(child.cloneNode(true));
+    else if (old.nodeType !== child.nodeType || old.nodeName !== child.nodeName) old.replaceWith(child.cloneNode(true));
+    else if (child.nodeType === Node.TEXT_NODE) { if (old.nodeValue !== child.nodeValue) old.nodeValue = child.nodeValue; }
+    else reconcileJourneyElement(old, child);
+  });
+  while (current.childNodes.length > next.childNodes.length) current.lastChild.remove();
 }
 
 function getFilteredJourneyEntries() {
@@ -5464,8 +5684,14 @@ function getFilteredJourneyEntries() {
   const sort = $("#journeySort")?.value || "name";
   const category = $("#journeyCategoryFilter")?.value || "all";
   const entries = state.journey.entries.filter((entry) => {
-    const comments = entry.comments.map((comment) => `${comment.text} ${comment.heroName} ${comment.userName}`).join(" ");
-    const haystack = `${entry.title} ${entry.level} ${entry.description} ${entry.category} ${entry.region} ${entry.threat} ${(entry.tags || []).join(" ")} ${comments}`.toLowerCase();
+    const searchStamp = `${entry.updatedAt}:${entry.comments.length}:${entry.comments.reduce((max, comment) => Math.max(max, comment.updatedAt || comment.createdAt || 0), 0)}`;
+    const cachedSearch = journeySearchIndex.get(entry);
+    let haystack = cachedSearch?.stamp === searchStamp ? cachedSearch.text : "";
+    if (!haystack) {
+      const comments = entry.comments.map(comment => `${comment.text} ${comment.heroName} ${comment.userName}`).join(" ");
+      haystack = `${entry.title} ${entry.level} ${entry.description} ${entry.category} ${entry.region} ${entry.threat} ${(entry.tags || []).join(" ")} ${comments}`.toLowerCase();
+      journeySearchIndex.set(entry, { stamp: searchStamp, text: haystack });
+    }
     return (!query || haystack.includes(query)) && (category === "all" || entry.category === category);
   });
   return [...entries].sort((a, b) => {
@@ -5498,7 +5724,7 @@ function renderJourneyCard(entry) {
   const canRemove = canManageJourneyEntry(entry);
   const unreadCount = getUnreadJourneyComments(entry).length;
   return `
-    <article class="journey-card category-${Object.hasOwn(JOURNEY_CATEGORIES, entry.category) ? entry.category : "event"} ${active} ${unreadCount ? "has-unread" : ""}">
+    <article data-journey-id="${escapeAttr(entry.id)}" style="--photo-ratio:${journeyPhotoRatio(entry.id)}" class="journey-card category-${Object.hasOwn(JOURNEY_CATEGORIES, entry.category) ? entry.category : "event"} ${active} ${unreadCount ? "has-unread" : ""}">
       <button class="journey-card-open" type="button" data-action="select-journey" data-id="${escapeAttr(entry.id)}">
         ${entry.image ? `<img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : `<span class="journey-image-placeholder">Sem imagem</span>`}
         <span class="journey-photo-caption"><span class="journey-card-title">${escapeHtml(entry.title)}</span><span class="journey-photo-meta">
@@ -5550,7 +5776,7 @@ function renderJourneyDetail(entry) {
       ${entry.image ? `<img class="journey-detail-image" src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async">` : ""}
       <p class="journey-description">${entry.description ? nl2br(entry.description) : "Nenhuma descrição foi registrada."}</p>
       ${entry.tags?.length ? `<div class="chip-row">${entry.tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
-      ${renderReferenceChips(entry.references || [])}
+      
       <section class="journey-comments">
         <div class="section-header floating lower">
           <div>
@@ -5605,7 +5831,6 @@ function renderJourneyEditForm(entry) {
           <label>Região<input name="region" maxlength="60" value="${escapeAttr(entry.region || "")}"></label>
         </div>
         <label>Etiquetas (separadas por vírgula)<input name="tags" maxlength="160" value="${escapeAttr((entry.tags || []).join(", "))}"></label>
-        <label>Referências cruzadas<select name="references" multiple size="5">${getCampaignReferenceOptions(entry.references || [])}</select></label>
         <label>
           Descrição
           <textarea name="description" rows="6" maxlength="1200">${escapeHtml(entry.description || "")}</textarea>
@@ -5680,7 +5905,7 @@ function saveJourneyEntry(event) {
     threat: $("#journeyThreat")?.value.trim() || "",
     region: $("#journeyRegion")?.value.trim() || "",
     tags: normalizeTags($("#journeyTags")?.value || ""),
-    references: getSelectedOptions($("#journeyReferences")),
+    references: existing?.references || [],
     createdByUserId: existing?.createdByUserId || user.id,
     createdByName: existing?.createdByName || user.name,
     createdAt: existing?.createdAt || Date.now(),
@@ -5814,7 +6039,7 @@ function saveJourneyModalEdit(event) {
     threat: event.target.elements.threat?.value.trim() || "",
     region: event.target.elements.region?.value.trim() || "",
     tags: normalizeTags(event.target.elements.tags?.value || ""),
-    references: getSelectedOptions(event.target.elements.references),
+    references: entry.references || [],
     updatedAt: Date.now()
   };
   journeyModalEditId = "";
@@ -5908,7 +6133,7 @@ function loadJourneyEntry(id) {
   $("#journeyThreat").value = entry.threat || "";
   $("#journeyRegion").value = entry.region || "";
   $("#journeyTags").value = (entry.tags || []).join(", ");
-  $("#journeyReferences").innerHTML = getCampaignReferenceOptions(entry.references || []);
+  
   $("#journeyFormTitle").textContent = "Editar lembrança";
   $("#journeyImageUpload").value = "";
   renderImagePreview("journeyImagePreview", entry.image || "");
@@ -5927,7 +6152,7 @@ function clearJourneyForm(options = {}) {
   $("#journeyThreat").value = "";
   $("#journeyRegion").value = "";
   $("#journeyTags").value = "";
-  $("#journeyReferences").innerHTML = getCampaignReferenceOptions();
+  
   $("#journeyFormTitle").textContent = "Nova lembrança";
   renderImagePreview("journeyImagePreview", "");
   if (!options.keepOpen) {
@@ -6066,7 +6291,7 @@ function renderCampfire() {
     galleryCount.textContent = `${state.campfire.heroes.length} card${state.campfire.heroes.length === 1 ? "" : "s"}`;
   }
   const boardKey = getCacheKey(
-    state.revision,
+    domainRevision("campfire"),
     hero?.id || "none",
     hero?.updatedAt || 0,
     canEditHero ? "edit" : "view",
@@ -6075,7 +6300,7 @@ function renderCampfire() {
   const boardHtml = getCachedValue(renderCache.campfireBoardHtml, boardKey, () => renderCampfireHeroBoard(hero, canEditHero));
   setHtmlIfChanged(ownBoard, boardHtml);
 
-  const galleryKey = getCacheKey(state.revision, getActiveUserId() || "", isAdmin() ? "admin" : "player");
+  const galleryKey = getCacheKey(domainRevision("campfire"), getActiveUserId() || "", isAdmin() ? "admin" : "player");
   const galleryHtml = getCachedValue(renderCache.campfireGalleryHtml, galleryKey, () => renderCampfireGallery());
   setHtmlIfChanged(gallery, galleryHtml);
   renderCampfireInvestigation();
@@ -6248,7 +6473,7 @@ function getInvestigationBoard() {
 function getInvestigationNoteEstimatedSize(note) {
   return {
     width: 220,
-    height: Math.max(166, 128 + Math.ceil(String(note?.text || "").length / 48) * 18 + (note?.journeyEntryId ? 104 : 0))
+    height: Math.max(166, 128 + Math.ceil(String(note?.text || "").length / 48) * 18)
   };
 }
 
@@ -6309,10 +6534,6 @@ function getInvestigationAuthor() {
   };
 }
 
-function getInvestigationJourneyEntry(note) {
-  return note?.journeyEntryId ? state.journey.entries.find((entry) => entry.id === note.journeyEntryId) || null : null;
-}
-
 function renderCampfireInvestigation() {
   const notesWrap = $("#campfireInvestigationNotes");
   const linksSvg = $("#campfireInvestigationLinks");
@@ -6344,13 +6565,13 @@ function renderCampfireInvestigation() {
     cancelButton.hidden = !investigationConnectMode;
   }
   const notesKey = getCacheKey(
-    state.revision,
+    domainRevision("campfire"),
     selectedInvestigationNoteId,
     investigationConnectMode,
     investigationConnectFromId,
     board.notes.map((note) => `${note.id}:${note.x}:${note.y}:${note.updatedAt}:${note.contentUpdatedAt}:${note.positionUpdatedAt}:${note.journeyEntryId}:${String(note.title || "").length}:${String(note.text || "").length}`).join(","),
     `${board.width}x${board.height}`,
-    state.journey.entries.map((entry) => `${entry.id}:${entry.updatedAt}:${entry.image}`).join(",")
+    getActiveUserId()
   );
   const notesHtml = getCachedValue(renderCache.campfireInvestigationNotesHtml, notesKey, () => board.notes.length
     ? board.notes.map(renderInvestigationNote).join("")
@@ -6362,19 +6583,16 @@ function renderCampfireInvestigation() {
 }
 
 function renderInvestigationNote(note) {
-  const entry = getInvestigationJourneyEntry(note);
   const author = note.createdByHeroName || note.createdByName || "Mesa";
   const active = selectedInvestigationNoteId === note.id ? "active" : "";
   const connecting = investigationConnectFromId === note.id ? "connecting" : "";
   return `
     <article class="investigation-note note-${escapeAttr(note.color)} ${active} ${connecting}" data-note-id="${escapeAttr(note.id)}" style="left:${Math.round(note.x)}px; top:${Math.round(note.y)}px">
       <div class="investigation-pin" aria-hidden="true"></div>
-      ${entry?.image ? `<div class="investigation-note-image" aria-label="Lembrança vinculada"><img src="${escapeAttr(entry.image)}" alt="${escapeAttr(entry.title)}" loading="lazy" decoding="async"></div>` : ""}
       <div class="investigation-note-main">
         <strong>${escapeHtml(note.title)}</strong>
         <span>${note.text ? escapeHtml(note.text) : "Sem descrição."}</span>
       </div>
-      ${entry ? `<em class="investigation-journey-label">${escapeHtml(entry.title)}</em>` : ""}
       <footer>
         <span>${escapeHtml(author)}</span>
         <span class="investigation-note-actions">
@@ -6394,7 +6612,7 @@ function renderInvestigationLinks() {
   const board = getInvestigationBoard();
   const noteMap = new Map(board.notes.map((note) => [note.id, note]));
   const linksKey = getCacheKey(
-    state.revision,
+    domainRevision("campfire"),
     board.links.map((link) => `${link.id}:${link.fromNoteId}:${link.toNoteId}:${link.updatedAt}`).join(","),
     board.notes.map((note) => `${note.id}:${note.x}:${note.y}:${note.positionUpdatedAt}:${note.contentUpdatedAt}:${String(note.title || "").length}:${String(note.text || "").length}:${note.journeyEntryId || ""}`).join(",")
   );
@@ -6463,13 +6681,6 @@ function renderInvestigationModal() {
     setHtmlIfChanged(content, "");
     return;
   }
-  const journeyOptions = [
-    `<option value="">Sem vínculo com a Jornada</option>`,
-    ...state.journey.entries
-      .slice()
-      .sort((a, b) => a.title.localeCompare(b.title, "pt-BR"))
-      .map((entry) => `<option value="${escapeAttr(entry.id)}" ${entry.id === note.journeyEntryId ? "selected" : ""}>${escapeHtml(entry.title)}${entry.level ? ` · Nível ${escapeHtml(entry.level)}` : ""}</option>`)
-  ].join("");
   const linkList = board.links
     .filter((link) => link.fromNoteId === note.id || link.toNoteId === note.id)
     .map((link) => {
@@ -6479,7 +6690,7 @@ function renderInvestigationModal() {
     })
     .join("");
   const deletePending = pendingInvestigationDeleteId === note.id;
-  const key = getCacheKey(state.revision, note.id, note.updatedAt, note.journeyEntryId, board.links.length, state.journey.entries.length, deletePending);
+  const key = getCacheKey(domainRevision("campfire"), note.id, note.updatedAt, note.journeyEntryId, board.links.length, state.journey.entries.length, deletePending);
   if (deletePending) {
     const html = `
       <header>
@@ -6522,10 +6733,6 @@ function renderInvestigationModal() {
           </select>
         </label>
       </div>
-      <label>
-        Lembrança da Jornada
-        <select name="journeyEntryId">${journeyOptions}</select>
-      </label>
       <label>
         Texto da nota
         <textarea name="text" rows="5" maxlength="600">${escapeHtml(note.text || "")}</textarea>
@@ -6723,7 +6930,6 @@ function saveInvestigationNote(event) {
   note.title = title;
   note.text = event.target.elements.text?.value.trim() || "";
   note.color = event.target.elements.color?.value || "gold";
-  note.journeyEntryId = event.target.elements.journeyEntryId?.value || "";
   note.contentUpdatedAt = Date.now();
   note.updatedAt = Math.max(Number(note.contentUpdatedAt) || 0, Number(note.positionUpdatedAt) || 0, Date.now());
   selectedInvestigationNoteId = "";
@@ -7164,96 +7370,6 @@ function handleCampfireAction(event) {
 }
 
 // Campaign expansion: all records remain small, independently mergeable entities.
-function getCampaignReferenceOptions(selected = []) {
-  const selectedIds = new Set(selected);
-  return getCampaignReferenceRecords().map((item) => `<option value="${escapeAttr(item.id)}"${selectedIds.has(item.id) ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("");
-}
-
-function getCampaignReferenceRecords() {
-  const mapZones = (state.baseMap?.floors || []).flatMap((floor) =>
-    (floor.zones || []).map((zone) => ({ id: `zone:${floor.id}:${zone.id}`, group: "Mapa da Base", label: `${floor.name} · ${zone.title}` }))
-  );
-  const investigationNotes = (state.campfire?.investigationBoard?.notes || []).map((note) => ({
-    id: `board:${note.id}`,
-    group: "Quadro de Investigação",
-    label: note.title
-  }));
-  return [
-    ...state.journey.entries.map((item) => ({ id: `journey:${item.id}`, group: "Jornada", label: item.title })),
-    ...state.npcs.map((item) => ({ id: `npc:${item.id}`, group: "NPCs", label: item.name })),
-    ...state.rooms.map((item) => ({ id: `room:${item.id}`, group: "Salas", label: item.name })),
-    ...state.missions.map((item) => ({ id: `mission:${item.id}`, group: "Missões e Rumores", label: `${item.type === "rumor" ? "Rumor" : "Missão"} · ${item.title}` })),
-    ...state.timeline.map((item) => ({ id: `timeline:${item.id}`, group: "Linha do Tempo", label: item.title })),
-    ...state.trophies.map((item) => ({ id: `trophy:${item.id}`, group: "Troféus", label: item.title })),
-    ...mapZones,
-    ...investigationNotes
-  ];
-}
-
-function renderReferencePicker(selectOrId) {
-  const select = typeof selectOrId === "string" ? $(`#${selectOrId}`) : selectOrId;
-  if (!select?.id) return;
-  const picker = document.querySelector(`[data-reference-picker="${select.id}"]`);
-  if (!picker) return;
-  if (select.id === "missionReferences") {
-    picker.dataset.category = "";
-    picker.dataset.query = "";
-    renderMissionReferencePicker(picker, select);
-    return;
-  }
-  const selected = new Set(getSelectedOptions(select));
-  const groups = new Map();
-  getCampaignReferenceRecords().forEach((record) => {
-    if (!groups.has(record.group)) groups.set(record.group, []);
-    groups.get(record.group).push(record);
-  });
-  const selectedLabels = getCampaignReferenceRecords().filter((record) => selected.has(record.id));
-  picker.innerHTML = `<div class="reference-selection-summary">${selectedLabels.length ? `<strong>${selectedLabels.length} vínculo${selectedLabels.length === 1 ? "" : "s"}</strong>${selectedLabels.map((item) => `<span>${escapeHtml(item.label)}</span>`).join("")}` : `<span>Nenhum vínculo selecionado</span>`}</div><input class="reference-search" type="search" data-reference-search="${escapeAttr(select.id)}" placeholder="Buscar personagem, lugar ou registro"><div class="reference-groups">${[...groups.entries()].map(([group, records]) => `<details><summary>${escapeHtml(group)} <span>${records.filter((item) => selected.has(item.id)).length || ""}</span></summary><div>${records.map((record) => `<label data-reference-label="${escapeAttr(`${group} ${record.label}`.toLocaleLowerCase("pt-BR"))}"><input type="checkbox" data-reference-select="${escapeAttr(select.id)}" value="${escapeAttr(record.id)}"${selected.has(record.id) ? " checked" : ""}><span>${escapeHtml(record.label)}</span></label>`).join("")}</div></details>`).join("")}</div>`;
-}
-
-function renderMissionReferencePicker(picker, select) {
-  const records = getCampaignReferenceRecords();
-  const selected = new Set(getSelectedOptions(select));
-  const query = picker.dataset.query || "";
-  const category = picker.dataset.category || "";
-  const activeSearch = picker.querySelector("input[type=search]") === document.activeElement;
-  const matches = records.filter(record => (!category || record.group === category) && (!query || `${record.group} ${record.label}`.toLocaleLowerCase("pt-BR").includes(query)));
-  picker.innerHTML = `<div class="mission-reference-toolbar"><input class="reference-search" type="search" aria-label="Buscar vínculos narrativos" data-reference-search="missionReferences" placeholder="Buscar vínculo..." value="${escapeAttr(query)}"><div class="mission-reference-categories" role="group" aria-label="Categorias de vínculo">${["", ...new Set(records.map(record => record.group))].map(group => `<button type="button" data-mission-ref-category="${escapeAttr(group)}" aria-pressed="${category === group}">${escapeHtml(group || "Todos")}</button>`).join("")}</div></div><div class="mission-reference-selected">${[...selected].map(id => `<button type="button" data-mission-ref-remove="${escapeAttr(id)}" title="Remover vínculo">${escapeHtml(records.find(record => record.id === id)?.label || "Registro indisponível")} <span aria-hidden="true">×</span></button>`).join("")}</div><div class="mission-reference-results">${matches.slice(0, 50).map(record => `<label><input type="checkbox" data-reference-select="missionReferences" value="${escapeAttr(record.id)}"${selected.has(record.id) ? " checked" : ""}><span>${escapeHtml(record.label)}<small>${escapeHtml(record.group)}</small></span></label>`).join("") || `<p>Nenhum registro encontrado.</p>`}</div>${matches.length > 50 ? `<small class="muted">${matches.length} resultados. Refine a busca para encontrar outros registros.</small>` : ""}`;
-  if (activeSearch) picker.querySelector("input[type=search]").focus();
-}
-
-function handleReferencePickerChange(event) {
-  const checkbox = event.target.closest("[data-reference-select]");
-  if (!checkbox) return;
-  const select = $(`#${checkbox.dataset.referenceSelect}`);
-  const option = [...(select?.options || [])].find((item) => item.value === checkbox.value);
-  if (option) option.selected = checkbox.checked;
-  if (select?.id === "missionReferences") { renderMissionReferencePicker(checkbox.closest(".reference-picker"), select); return; }
-  renderReferencePicker(select);
-}
-
-function handleReferencePickerSearch(event) {
-  const input = event.target.closest("[data-reference-search]");
-  if (!input) return;
-  const picker = input.closest(".reference-picker");
-  if (input.dataset.referenceSearch === "missionReferences") { picker.dataset.query = input.value.toLocaleLowerCase("pt-BR"); renderMissionReferencePicker(picker, $("#missionReferences")); return; }
-  const query = input.value.trim().toLocaleLowerCase("pt-BR");
-  picker?.querySelectorAll(".reference-groups details").forEach((details) => {
-    let visible = 0;
-    details.querySelectorAll("[data-reference-label]").forEach((label) => {
-      const matches = !query || label.dataset.referenceLabel.includes(query);
-      label.hidden = !matches;
-      if (matches) visible += 1;
-    });
-    details.hidden = visible === 0;
-    if (query && visible) details.open = true;
-  });
-}
-
-function getSelectedOptions(select) {
-  return select ? [...select.selectedOptions].map((option) => option.value).filter(Boolean) : [];
-}
-
 function getActorMetadata() {
   const user = getActiveUser();
   const hero = user ? getCampfireHeroForUser(user.id) : null;
@@ -7263,57 +7379,6 @@ function getActorMetadata() {
     createdByHeroId: hero?.id || "",
     createdByHeroName: hero?.characterName || ""
   };
-}
-
-function renderReferenceChips(references = []) {
-  if (!references.length) return "";
-  const records = new Map(getCampaignReferenceRecords().map((record) => [record.id, record]));
-  return `<div class="reference-chip-row" aria-label="Vínculos narrativos">${references.map((reference) => { const record = records.get(reference); return `<button class="reference-chip" type="button" data-action="open-reference" data-reference="${escapeAttr(reference)}"><small>${escapeHtml(record?.group || "Referência")}</small><span>${escapeHtml(record?.label || "Registro indisponível")}</span></button>`; }).join("")}</div>`;
-}
-
-function openCampaignReference(reference) {
-  const [kind, id] = String(reference || "").split(":");
-  if (!id) return;
-  if (kind === "journey") {
-    selectedJourneyEntryId = id;
-    journeyModalEditId = "";
-    showView("journey");
-    return;
-  }
-  if (kind === "npc") {
-    selectedNpcId = id;
-    showView("npcs");
-    return;
-  }
-  if (kind === "room") return showView("rooms");
-  if (kind === "mission") {
-    selectedMissionId = id;
-    return showView("missions");
-  }
-  if (kind === "timeline") {
-    selectedTimelineId = id;
-    return showView("timeline");
-  }
-  if (kind === "trophy") {
-    selectedTrophyId = id;
-    return showView("trophies");
-  }
-  if (kind === "zone") {
-    const [, floorId, zoneId] = String(reference || "").split(":");
-    const floor = state.baseMap?.floors?.find((item) => item.id === floorId);
-    if (!floor?.zones?.some((zone) => zone.id === zoneId)) return;
-    selectedMapFloorId = floorId;
-    selectedMapZoneId = zoneId;
-    showView("map");
-    openMapZoneModal(zoneId);
-    return;
-  }
-  if (kind === "board") {
-    const note = state.campfire?.investigationBoard?.notes?.find((item) => item.id === id);
-    if (!note) return;
-    showView("campfire");
-    openInvestigationNoteModal(id);
-  }
 }
 
 function renderBaseMap() {
@@ -7326,7 +7391,7 @@ function renderBaseMap() {
   const floorArt = BASE_MAP_FLOORS.find((item) => item.id === floor.id) || BASE_MAP_FLOORS[0];
   $$("[data-floor]").forEach((button) => button.classList.toggle("active", button.dataset.floor === floor.id));
   const zones = [...floor.zones].sort((a, b) => a.y - b.y || a.x - b.x);
-  const key = getCacheKey(state.revision, floor.id, mapZoom, mapSelection, selectedMapZoneId);
+  const key = getCacheKey(domainRevision("map"), floor.id, mapZoom, mapSelection, selectedMapZoneId);
   const canvasHtml = getCachedValue(renderCache.baseMapHtml, key, () => `
     <div class="base-map-stage" style="--map-scale:${mapZoom};--map-ratio:${floorArt.imageWidth}/${floorArt.imageHeight}">
       <img src="${escapeAttr(floor.image)}" alt="Mapa ${escapeAttr(floor.name)}" width="${floorArt.imageWidth}" height="${floorArt.imageHeight}" draggable="false" decoding="async" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
@@ -7497,16 +7562,14 @@ function toggleCampaignComposer(kind, open) {
   const panel = $(`#${kind}EditorPanel`);
   if (panel) panel.hidden = !open;
   if (open) {
-    const references = panel?.querySelector("select[multiple]");
-    if (references && !references.options.length) references.innerHTML = getCampaignReferenceOptions();
-    renderReferencePicker(references);
+    
   }
   if (open) panel?.querySelector("input, textarea, select")?.focus();
 }
 
-function clearMissionForm() { const form = $("#missionForm"); if (form) form.reset(); $("#missionId").value = ""; $("#missionReferences").innerHTML = getCampaignReferenceOptions(); renderReferencePicker("missionReferences"); toggleCampaignComposer("mission", false); }
-function clearTimelineForm() { const form = $("#timelineForm"); if (form) form.reset(); $("#timelineId").value = "";setCampaignRecordDate("timeline"); $("#timelineReferences").innerHTML = getCampaignReferenceOptions(); renderReferencePicker("timelineReferences"); renderTimelineDayPreview(); toggleCampaignComposer("timeline", false); }
-function clearTrophyForm() { const form = $("#trophyForm"); if (form) form.reset(); $("#trophyId").value = "";setCampaignRecordDate("trophy"); $("#trophyImage").value = ""; $("#trophyReferences").innerHTML = getCampaignReferenceOptions(); renderReferencePicker("trophyReferences"); renderImagePreview("trophyImagePreview", ""); renderTrophyRecipients({awardedToGroup:true,recipientHeroIds:[]});toggleCampaignComposer("trophy", false); }
+function clearMissionForm() { const form = $("#missionForm"); if (form) form.reset(); $("#missionId").value = "";   toggleCampaignComposer("mission", false); }
+function clearTimelineForm() { const form = $("#timelineForm"); if (form) form.reset(); $("#timelineId").value = "";setCampaignRecordDate("timeline");   renderTimelineDayPreview(); toggleCampaignComposer("timeline", false); }
+function clearTrophyForm() { const form = $("#trophyForm"); if (form) form.reset(); $("#trophyId").value = "";setCampaignRecordDate("trophy"); $("#trophyImage").value = "";   renderImagePreview("trophyImagePreview", ""); renderTrophyRecipients({awardedToGroup:true,recipientHeroIds:[]});toggleCampaignComposer("trophy", false); }
 
 function renderTimelineDayPreview() {
   const output = $("#timelineDayPreview");
@@ -7521,7 +7584,7 @@ function renderMissions() {
   const type = $("#missionTypeFilter")?.value || "all";
   const status = $("#missionStatusFilter")?.value || "all";
   const records = state.missions.filter((item) => (!query || `${item.title} ${item.description} ${item.region} ${item.tags}`.toLowerCase().includes(query)) && (type === "all" || item.type === type) && (status === "all" || item.status === status)).sort((a,b) => b.updatedAt - a.updatedAt);
-  const key = getCacheKey(state.revision, query, type, status, isAdmin());
+  const key = getCacheKey(domainRevision("missions"), query, type, status, isAdmin());
   setHtmlIfChanged(list, getCachedValue(renderCache.missionsHtml, key, () => renderMissionBoard(records, type)));
 }
 
@@ -7542,19 +7605,19 @@ function renderMissionBoard(records, typeFilter) {
 
 function renderMissionNotice(item) {
   const typeLabel = item.type === "rumor" ? "Rumor" : ({ available: "Disponível", active: "Em curso", completed: "Concluída", failed: "Fracassada" }[item.status] || item.status);
-  return `<article class="quest-notice ${item.type} status-${escapeAttr(item.status)}"><span class="quest-pin" aria-hidden="true"></span><header><p>${escapeHtml(typeLabel)}</p><div class="card-actions">${item.type === "rumor" ? `<button class="icon-button" type="button" title="Converter em missão" data-action="convert-rumor" data-id="${escapeAttr(item.id)}">↗</button>` : ""}<button class="icon-button" type="button" title="Editar" data-action="edit-mission" data-id="${escapeAttr(item.id)}">✎</button><button class="icon-button" type="button" title="Remover" data-action="delete-mission" data-id="${escapeAttr(item.id)}">✕</button></div></header><h4>${escapeHtml(item.title)}</h4>${item.description ? `<p>${nl2br(item.description)}</p>` : ""}<div class="quest-notice-meta">${item.region ? `<span>${escapeHtml(item.region)}</span>` : ""}${item.assignee ? `<span>${escapeHtml(item.assignee)}</span>` : ""}${item.type === "rumor" ? `<span>${escapeHtml(item.reliability)}</span>` : ""}${item.dueDay ? `<span>${escapeHtml(formatCalendarDate(item.dueDay))}</span>` : ""}</div>${renderReferenceChips(item.references)}</article>`;
+  return `<article class="quest-notice ${item.type} status-${escapeAttr(item.status)}"><span class="quest-pin" aria-hidden="true"></span><header><p>${escapeHtml(typeLabel)}</p><div class="card-actions">${item.type === "rumor" ? `<button class="icon-button" type="button" title="Converter em missão" data-action="convert-rumor" data-id="${escapeAttr(item.id)}">↗</button>` : ""}<button class="icon-button" type="button" title="Editar" data-action="edit-mission" data-id="${escapeAttr(item.id)}">✎</button><button class="icon-button" type="button" title="Remover" data-action="delete-mission" data-id="${escapeAttr(item.id)}">✕</button></div></header><h4>${escapeHtml(item.title)}</h4>${item.description ? `<p>${nl2br(item.description)}</p>` : ""}<div class="quest-notice-meta">${item.region ? `<span>${escapeHtml(item.region)}</span>` : ""}${item.assignee ? `<span>${escapeHtml(item.assignee)}</span>` : ""}${item.type === "rumor" ? `<span>${escapeHtml(item.reliability)}</span>` : ""}${item.dueDay ? `<span>${escapeHtml(formatCalendarDate(item.dueDay))}</span>` : ""}</div></article>`;
 }
 
 function saveMission(event) {
-  event.preventDefault(); const id = $("#missionId").value; const existing = state.missions.find((item) => item.id === id); const item = normalizeMission({ ...(existing || getActorMetadata()), id: id || createId("mission"), type: $("#missionType").value, title: $("#missionTitle").value.trim(), description: $("#missionDescription").value.trim(), status: $("#missionStatus").value, assignee: $("#missionAssignee").value.trim(), region: $("#missionRegion").value.trim(), source: $("#missionSource").value.trim(), reliability: $("#missionReliability").value, dueDay: Number($("#missionDueDay").value) || 0, tags: $("#missionTags").value, references: getSelectedOptions($("#missionReferences")), updatedAt: Date.now() }, state.users); if (!item.title) return showToast("Informe um título."); const index = state.missions.findIndex((record) => record.id === item.id); if (index >= 0) state.missions[index] = item; else state.missions.push(item); saveState(state, { immediate: true }); clearMissionForm(); renderMissions(); showToast(item.type === "rumor" ? "Rumor salvo. Sincronizando com a mesa..." : "Missão salva. Sincronizando com a mesa...");
+  event.preventDefault(); const id = $("#missionId").value; const existing = state.missions.find((item) => item.id === id); const item = normalizeMission({ ...(existing || getActorMetadata()), id: id || createId("mission"), type: $("#missionType").value, title: $("#missionTitle").value.trim(), description: $("#missionDescription").value.trim(), status: $("#missionStatus").value, assignee: $("#missionAssignee").value.trim(), region: $("#missionRegion").value.trim(), source: $("#missionSource").value.trim(), reliability: $("#missionReliability").value, dueDay: Number($("#missionDueDay").value) || 0, tags: $("#missionTags").value, references: existing?.references || [], updatedAt: Date.now() }, state.users); if (!item.title) return showToast("Informe um título."); const index = state.missions.findIndex((record) => record.id === item.id); if (index >= 0) state.missions[index] = item; else state.missions.push(item); saveState(state, { immediate: true }); clearMissionForm(); renderMissions(); showToast(item.type === "rumor" ? "Rumor salvo. Sincronizando com a mesa..." : "Missão salva. Sincronizando com a mesa...");
 }
 
 function handleMissionAction(event) {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const item = state.missions.find((record) => record.id === button.dataset.id);
-  if (button.dataset.action === "open-reference") return openCampaignReference(button.dataset.reference);
+  
   if (!item) return;
-  if (button.dataset.action === "edit-mission") { $("#missionId").value=item.id; $("#missionType").value=item.type; $("#missionTitle").value=item.title; $("#missionDescription").value=item.description; $("#missionStatus").value=item.status; $("#missionAssignee").value=item.assignee; $("#missionRegion").value=item.region; $("#missionSource").value=item.source; $("#missionReliability").value=item.reliability; $("#missionDueDay").value=item.dueDay || ""; $("#missionTags").value=item.tags.join(", "); $("#missionReferences").innerHTML=getCampaignReferenceOptions(item.references); renderReferencePicker("missionReferences"); toggleCampaignComposer("mission",true); return; }
+  if (button.dataset.action === "edit-mission") { $("#missionId").value=item.id; $("#missionType").value=item.type; $("#missionTitle").value=item.title; $("#missionDescription").value=item.description; $("#missionStatus").value=item.status; $("#missionAssignee").value=item.assignee; $("#missionRegion").value=item.region; $("#missionSource").value=item.source; $("#missionReliability").value=item.reliability; $("#missionDueDay").value=item.dueDay || ""; $("#missionTags").value=item.tags.join(", ");   toggleCampaignComposer("mission",true); return; }
   if (button.dataset.action === "convert-rumor" && item.type === "rumor") { item.type = "mission"; item.status = "available"; item.updatedAt = Date.now(); saveState(); renderMissions(); showToast("Rumor convertido em missão."); return; }
   if (button.dataset.action === "delete-mission" && confirm(`Remover ${item.title}?`)) { addDeletedRecord("mission",item.id); state.missions=state.missions.filter((record)=>record.id!==item.id); saveState(); renderMissions(); }
 }
@@ -7631,7 +7694,7 @@ function renderTimeline() {
   const era = $("#timelineEraFilter")?.value || "all";
   const type = $("#timelineTypeFilter")?.value || "all";
   const records = state.timeline.filter((item) => (!query || `${item.title} ${item.description}`.toLocaleLowerCase("pt-BR").includes(query)) && (era === "all" || item.era === era) && (type === "all" || item.type === type)).sort((a, b) => timelineRank(a) - timelineRank(b) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  const key = getCacheKey(state.revision, query, era, type, records.map((item) => [item.id, item.updatedAt]));
+  const key = getCacheKey(domainRevision("timeline"), query, era, type, records.map((item) => [item.id, item.updatedAt]));
   setHtmlIfChanged(list, getCachedValue(renderCache.timelineHtml, key, () => `<div class="timeline-horizontal-scroll"><div class="campaign-chronicle-horizontal">${[1, 2, 3].map((currentEra) => {
     const entries = records.filter((item) => Number(item.era) === currentEra);
     return `<section class="timeline-era-segment" style="--era-width:${Math.max(360, (entries.length + 1) * 180 + 100)}px"><header class="timeline-era-marker"><span>${["I", "II", "III"][currentEra - 1]}</span><h2>${currentEra}ª Era</h2></header><div class="timeline-era-events">${entries.map((item, index) => `<button type="button" class="timeline-node type-${escapeAttr(item.type)} ${index % 2 ? "below" : "above"}" data-action="open-timeline" data-id="${escapeAttr(item.id)}"><span class="timeline-node-dot" aria-hidden="true"></span><span class="timeline-node-label"><small>${item.day ? escapeHtml(formatCalendarDate(item.day)) : "Sem data"}</small><strong>${escapeHtml(item.title)}</strong></span></button>`).join("")}<button class="timeline-add-node" type="button" data-action="add-timeline" data-era="${currentEra}" title="Adicionar registro à ${currentEra}ª Era" aria-label="Adicionar registro à ${currentEra}ª Era">+</button></div></section>`;
@@ -7647,12 +7710,12 @@ function renderTimelineDetail() {
   const item = state.timeline.find((record) => record.id === selectedTimelineId);
   if (!item) { if (dialog.open) dialog.close(); return; }
   const labels = { session: "Sessão", discovery: "Descoberta", decision: "Decisão" };
-  setHtmlIfChanged(detail, `<header><div><p class="eyebrow">${escapeHtml(labels[item.type])} · ${item.era}ª Era</p><h2>${escapeHtml(item.title)}</h2></div><button type="button" class="icon-button" data-action="close-timeline" aria-label="Fechar" title="Fechar">×</button></header><p class="timeline-detail-date">${item.day ? escapeHtml(formatCalendarDate(item.day)) : "Sem data registrada"}</p><div class="timeline-detail-text">${nl2br(item.description)}</div>${renderReferenceChips(item.references)}<footer class="button-row"><button type="button" class="button ghost" data-action="edit-timeline" data-id="${escapeAttr(item.id)}">Editar registro</button><button type="button" class="button danger" data-action="delete-timeline" data-id="${escapeAttr(item.id)}">Remover</button></footer>`);
+  setHtmlIfChanged(detail, `<header><div><p class="eyebrow">${escapeHtml(labels[item.type])} · ${item.era}ª Era</p><h2>${escapeHtml(item.title)}</h2></div><button type="button" class="icon-button" data-action="close-timeline" aria-label="Fechar" title="Fechar">×</button></header><p class="timeline-detail-date">${item.day ? escapeHtml(formatCalendarDate(item.day)) : "Sem data registrada"}</p><div class="timeline-detail-text">${nl2br(item.description)}</div><footer class="button-row"><button type="button" class="button ghost" data-action="edit-timeline" data-id="${escapeAttr(item.id)}">Editar registro</button><button type="button" class="button danger" data-action="delete-timeline" data-id="${escapeAttr(item.id)}">Remover</button></footer>`);
   if (!dialog.open) dialog.showModal();
 }
 
-function saveTimelineEntry(event) { event.preventDefault(); const id=$("#timelineId").value,existing=state.timeline.find((item)=>item.id===id); const item=normalizeTimelineEntry({...(existing||getActorMetadata()),id:id||createId("timeline"),title:$("#timelineTitle").value.trim(),description:$("#timelineDescription").value.trim(),type:$("#timelineType").value,era:$("#timelineEra").value,day:readCampaignRecordDate("timeline",existing?.day),references:getSelectedOptions($("#timelineReferences")),updatedAt:Date.now()},state.users); if(!item.title)return showToast("Informe um título."); const index=state.timeline.findIndex((record)=>record.id===item.id); if(index>=0)state.timeline[index]=item;else state.timeline.push(item);saveState(state,{immediate:true});clearTimelineForm();renderTimeline();showToast("Marco salvo. Sincronizando com a mesa..."); }
-function handleTimelineAction(event){const button=event.target.closest("[data-action]");if(!button)return;if(button.dataset.action==="close-timeline"){selectedTimelineId="";renderTimelineDetail();return;}if(button.dataset.action==="add-timeline"){clearTimelineForm();$("#timelineEra").value=button.dataset.era;toggleCampaignComposer("timeline",true);return;}if(button.dataset.action==="open-reference")return openCampaignReference(button.dataset.reference);const item=state.timeline.find((record)=>record.id===button.dataset.id);if(!item)return;if(button.dataset.action==="open-timeline"){selectedTimelineId=item.id;renderTimelineDetail();return;}if(button.dataset.action==="edit-timeline"){selectedTimelineId="";renderTimelineDetail();$("#timelineId").value=item.id;$("#timelineTitle").value=item.title;$("#timelineDescription").value=item.description;$("#timelineType").value=item.type;$("#timelineEra").value=item.era;setCampaignRecordDate("timeline",item.day);$("#timelineReferences").innerHTML=getCampaignReferenceOptions(item.references);renderReferencePicker("timelineReferences");renderTimelineDayPreview();toggleCampaignComposer("timeline",true);}if(button.dataset.action==="delete-timeline"&&confirm(`Remover ${item.title}?`)){addDeletedRecord("timeline",item.id);state.timeline=state.timeline.filter((record)=>record.id!==item.id);saveState();renderTimeline();}}
+function saveTimelineEntry(event) { event.preventDefault(); const id=$("#timelineId").value,existing=state.timeline.find((item)=>item.id===id); const item=normalizeTimelineEntry({...(existing||getActorMetadata()),id:id||createId("timeline"),title:$("#timelineTitle").value.trim(),description:$("#timelineDescription").value.trim(),type:$("#timelineType").value,era:$("#timelineEra").value,day:readCampaignRecordDate("timeline",existing?.day),references: existing?.references || [],updatedAt:Date.now()},state.users); if(!item.title)return showToast("Informe um título."); const index=state.timeline.findIndex((record)=>record.id===item.id); if(index>=0)state.timeline[index]=item;else state.timeline.push(item);saveState(state,{immediate:true});clearTimelineForm();renderTimeline();showToast("Marco salvo. Sincronizando com a mesa..."); }
+function handleTimelineAction(event){const button=event.target.closest("[data-action]");if(!button)return;if(button.dataset.action==="close-timeline"){selectedTimelineId="";renderTimelineDetail();return;}if(button.dataset.action==="add-timeline"){clearTimelineForm();$("#timelineEra").value=button.dataset.era;toggleCampaignComposer("timeline",true);return;}const item=state.timeline.find((record)=>record.id===button.dataset.id);if(!item)return;if(button.dataset.action==="open-timeline"){selectedTimelineId=item.id;renderTimelineDetail();return;}if(button.dataset.action==="edit-timeline"){selectedTimelineId="";renderTimelineDetail();$("#timelineId").value=item.id;$("#timelineTitle").value=item.title;$("#timelineDescription").value=item.description;$("#timelineType").value=item.type;$("#timelineEra").value=item.era;setCampaignRecordDate("timeline",item.day);renderTimelineDayPreview();toggleCampaignComposer("timeline",true);}if(button.dataset.action==="delete-timeline"&&confirm(`Remover ${item.title}?`)){addDeletedRecord("timeline",item.id);state.timeline=state.timeline.filter((record)=>record.id!==item.id);saveState();renderTimeline();}}
 
 function renderTrophies() {
   const list = $("#trophyList"); if (!list) return;
@@ -7660,12 +7723,12 @@ function renderTrophies() {
   const query = $("#trophySearch")?.value.trim().toLowerCase() || "";
   const records = state.trophies.filter((item) => (trophyRarityFilter === "all" || item.rarity === trophyRarityFilter) && (!query || `${item.title} ${item.category} ${item.description}`.toLowerCase().includes(query))).sort((a, b) => Number(b.featured) - Number(a.featured) || b.updatedAt - a.updatedAt);
   $$("#trophyRarityFilters [data-rarity]").forEach((button) => button.classList.toggle("active", button.dataset.rarity === trophyRarityFilter));
-  const key = getCacheKey(state.revision, query, trophyRarityFilter, isAdmin());
+  const key = getCacheKey(domainRevision("trophies"), query, trophyRarityFilter, isAdmin());
   const emptyHooks = 3;
   setHtmlIfChanged(list, getCachedValue(renderCache.trophiesHtml, key, () => `<div class="trophy-hall">${records.map(renderTrophyCard).join("")}${Array.from({ length: emptyHooks }, () => `<div class="trophy-empty-hook" aria-hidden="true"><span>☠</span><small>Gancho vazio</small></div>`).join("")}</div>${!records.length ? `<div class="trophy-filter-empty"><strong>${state.trophies.length ? "Nenhuma conquista neste filtro" : "O salão aguarda seu primeiro feito"}</strong><span>As próximas vitórias encontrarão seu lugar nestas muralhas.</span></div>` : ""}`));
   const modal = $("#trophyModal"), detail = $("#trophyDetail");
   const selected = selectedTrophyId ? state.trophies.find((item) => item.id === selectedTrophyId) : null;
-  if (modal && detail) { setHtmlIfChanged(detail, selected ? `<article class="campaign-modal-card trophy-detail"><header><div><p class="eyebrow">${escapeHtml(selected.category || "Conquista")}</p><h3>${escapeHtml(selected.title)}</h3></div><button class="icon-button" data-action="close-trophy" title="Fechar">×</button></header><p class="trophy-detail-recipients">${escapeHtml(getTrophyRecipientsLabel(selected))}</p>${selected.image ? `<img src="${escapeAttr(selected.image)}" alt="${escapeAttr(selected.title)}">` : ""}<p>${nl2br(selected.description)}</p>${selected.day ? `<p class="muted">${escapeHtml(formatCalendarDate(selected.day))}</p>` : ""}${renderReferenceChips(selected.references)}</article>` : ""); modal.hidden = !selected; }
+  if (modal && detail) { setHtmlIfChanged(detail, selected ? `<article class="campaign-modal-card trophy-detail"><header><div><p class="eyebrow">${escapeHtml(selected.category || "Conquista")}</p><h3>${escapeHtml(selected.title)}</h3></div><button class="icon-button" data-action="close-trophy" title="Fechar">×</button></header><p class="trophy-detail-recipients">${escapeHtml(getTrophyRecipientsLabel(selected))}</p>${selected.image ? `<img src="${escapeAttr(selected.image)}" alt="${escapeAttr(selected.title)}">` : ""}<p>${nl2br(selected.description)}</p>${selected.day ? `<p class="muted">${escapeHtml(formatCalendarDate(selected.day))}</p>` : ""}</article>` : ""); modal.hidden = !selected; }
 }
 
 function renderTrophyRecipients(item = null) {
@@ -7696,5 +7759,5 @@ function renderTrophyCard(item) {
   return `<article class="trophy-card rarity-${rarity}${item.featured ? " featured" : ""}"><button class="trophy-card-main" type="button" data-action="open-trophy" data-id="${escapeAttr(item.id)}"><span class="trophy-rarity"><b aria-hidden="true">${rarityIcon}</b>${rarityLabel}</span><span class="trophy-art">${item.image ? `<img src="${escapeAttr(item.image)}" alt="${escapeAttr(item.title)}" loading="lazy" decoding="async">` : `<span class="trophy-placeholder" aria-hidden="true">✦</span>`}${item.featured ? `<i class="trophy-spark" aria-hidden="true">✦</i>` : ""}</span><span class="trophy-card-body"><strong>${escapeHtml(item.title)}</strong>${context ? `<span class="trophy-context">${escapeHtml(context)}</span>` : ""}<span class="trophy-meta"><span>${escapeHtml(author)}</span><span>${item.day ? escapeHtml(formatCalendarDate(item.day)) : "Data não registrada"}</span></span></span></button>${isAdmin() ? `<div class="card-actions"><button class="icon-button" title="Editar" data-action="edit-trophy" data-id="${escapeAttr(item.id)}">✎</button><button class="icon-button" title="Remover" data-action="delete-trophy" data-id="${escapeAttr(item.id)}">✕</button></div>` : ""}</article>`;
 }
 
-function saveTrophy(event){event.preventDefault();if(!isAdmin())return;if(!$("#trophyAwardGroup").checked && !$$("#trophyRecipientOptions input:checked").length)return showToast("Escolha pelo menos um personagem ou Minimus Legio.");const id=$("#trophyId").value,existing=state.trophies.find((item)=>item.id===id);const item=normalizeTrophy({...(existing||getActorMetadata()),id:id||createId("trophy"),title:$("#trophyTitle").value.trim(),category:$("#trophyCategory").value.trim(),rarity:$("#trophyRarity").value,featured:$("#trophyFeatured").checked,awardedToGroup:$("#trophyAwardGroup").checked,recipientHeroIds:$$("#trophyRecipientOptions input:checked").map((input)=>input.value),image:$("#trophyImage")?.value||"",description:$("#trophyDescription").value.trim(),day:readCampaignRecordDate("trophy",existing?.day),references:getSelectedOptions($("#trophyReferences")),updatedAt:Date.now()},state.users);if(!item.title)return showToast("Informe um título.");const index=state.trophies.findIndex((record)=>record.id===item.id);if(index>=0)state.trophies[index]=item;else state.trophies.push(item);saveState(state,{immediate:true});clearTrophyForm();renderTrophies();showToast("Troféu salvo. Sincronizando com a mesa...");}
-function handleTrophyAction(event){const button=event.target.closest("[data-action]");if(!button)return;if(button.dataset.action==="open-reference")return openCampaignReference(button.dataset.reference);const item=state.trophies.find((record)=>record.id===button.dataset.id);if(button.dataset.action==="close-trophy"||event.target===event.currentTarget){selectedTrophyId="";renderTrophies();return;}if(!item)return;if(button.dataset.action==="open-trophy"){selectedTrophyId=item.id;renderTrophies();return;}if(!isAdmin())return;if(button.dataset.action==="edit-trophy"){$("#trophyId").value=item.id;$("#trophyTitle").value=item.title;$("#trophyCategory").value=item.category;$("#trophyRarity").value=item.rarity||"notable";$("#trophyFeatured").checked=Boolean(item.featured);renderTrophyRecipients(item);setCampaignRecordDate("trophy",item.day);$("#trophyDescription").value=item.description;$("#trophyReferences").innerHTML=getCampaignReferenceOptions(item.references);renderReferencePicker("trophyReferences");$("#trophyImage").value=item.image||"";renderImagePreview("trophyImagePreview",item.image||"");toggleCampaignComposer("trophy",true);}if(button.dataset.action==="delete-trophy"&&confirm(`Remover ${item.title}?`)){addDeletedRecord("trophy",item.id);state.trophies=state.trophies.filter((record)=>record.id!==item.id);selectedTrophyId="";saveState();renderTrophies();}}
+function saveTrophy(event){event.preventDefault();if(!isAdmin())return;if(!$("#trophyAwardGroup").checked && !$$("#trophyRecipientOptions input:checked").length)return showToast("Escolha pelo menos um personagem ou Minimus Legio.");const id=$("#trophyId").value,existing=state.trophies.find((item)=>item.id===id);const item=normalizeTrophy({...(existing||getActorMetadata()),id:id||createId("trophy"),title:$("#trophyTitle").value.trim(),category:$("#trophyCategory").value.trim(),rarity:$("#trophyRarity").value,featured:$("#trophyFeatured").checked,awardedToGroup:$("#trophyAwardGroup").checked,recipientHeroIds:$$("#trophyRecipientOptions input:checked").map((input)=>input.value),image:$("#trophyImage")?.value||"",description:$("#trophyDescription").value.trim(),day:readCampaignRecordDate("trophy",existing?.day),references: existing?.references || [],updatedAt:Date.now()},state.users);if(!item.title)return showToast("Informe um título.");const index=state.trophies.findIndex((record)=>record.id===item.id);if(index>=0)state.trophies[index]=item;else state.trophies.push(item);saveState(state,{immediate:true});clearTrophyForm();renderTrophies();showToast("Troféu salvo. Sincronizando com a mesa...");}
+function handleTrophyAction(event){const button=event.target.closest("[data-action]");if(!button)return;const item=state.trophies.find((record)=>record.id===button.dataset.id);if(button.dataset.action==="close-trophy"||event.target===event.currentTarget){selectedTrophyId="";renderTrophies();return;}if(!item)return;if(button.dataset.action==="open-trophy"){selectedTrophyId=item.id;renderTrophies();return;}if(!isAdmin())return;if(button.dataset.action==="edit-trophy"){$("#trophyId").value=item.id;$("#trophyTitle").value=item.title;$("#trophyCategory").value=item.category;$("#trophyRarity").value=item.rarity||"notable";$("#trophyFeatured").checked=Boolean(item.featured);renderTrophyRecipients(item);setCampaignRecordDate("trophy",item.day);$("#trophyDescription").value=item.description;$("#trophyImage").value=item.image||"";renderImagePreview("trophyImagePreview",item.image||"");toggleCampaignComposer("trophy",true);}if(button.dataset.action==="delete-trophy"&&confirm(`Remover ${item.title}?`)){addDeletedRecord("trophy",item.id);state.trophies=state.trophies.filter((record)=>record.id!==item.id);selectedTrophyId="";saveState();renderTrophies();}}
