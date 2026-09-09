@@ -5602,3 +5602,33 @@ body.room-upgrade-modal-open {
   html { scroll-behavior:auto; }
   .card-actions, .room-maintenance-actions, .journey-card-actions { transition:none; }
 }
+
+/* Mercado: etiquetas de loja e ciclo de renovação. */
+#marketStatus { display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; }
+#marketStatus .chip.premium { color:#f4d99b; border-color:rgba(205,169,106,.48); background:rgba(205,169,106,.13); }
+#marketStatus .chip.income { color:#c4efd9; border-color:rgba(76,167,124,.46); background:rgba(51,127,92,.16); }
+.market-restock-clock { flex:1 1 250px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px 14px; min-width:min(100%,250px); padding:10px 12px; border:1px solid rgba(132,158,170,.34); border-radius:5px; background:rgba(24,39,47,.56); color:#aebfc8; }
+.market-restock-clock.is-due { border-color:rgba(205,169,106,.56); background:rgba(71,55,26,.34); }
+.market-restock-clock-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; grid-column:1 / -1; font:700 .73rem/1.2 var(--font-mono); }
+.market-restock-clock-head strong { color:#f1d79a; }
+.market-restock-clock small { color:rgba(211,225,231,.7); font-size:.72rem; }
+.market-restock-track { grid-column:1 / -1; height:6px; overflow:hidden; border-radius:99px; background:rgba(3,10,14,.7); box-shadow:inset 0 1px 2px rgba(0,0,0,.42); }
+.market-restock-track span { display:block; width:var(--market-restock-progress); height:100%; border-radius:inherit; background:linear-gradient(90deg,#4b9073,#d0a458); transition:width .28s ease; }
+.market-card .market-price-tag { display:flex; flex-wrap:wrap; align-items:center; gap:7px 10px; margin-top:auto; padding:10px 0 2px; border-top:1px solid rgba(205,169,106,.18); }
+.market-price-original { color:rgba(219,228,230,.58); font-size:.78rem; }
+.market-price-original s { text-decoration-color:rgba(205,169,106,.72); text-decoration-thickness:1px; }
+.market-price-final { color:#f5dfad; font:700 1.2rem/1 var(--font-display); }
+.market-adjustment { margin-left:auto; padding:4px 7px; border:1px solid; border-radius:999px; font:700 .67rem/1 var(--font-mono); }
+.market-adjustment.is-discount { color:#c5efdb; border-color:rgba(68,158,115,.5); background:rgba(46,119,83,.17); }
+.market-adjustment.is-premium { color:#f5d89c; border-color:rgba(205,169,106,.5); background:rgba(129,94,31,.17); }
+.market-card.rarity-uncommon { border-color:rgba(205,169,106,.68); background:linear-gradient(145deg,rgba(127,91,35,.2),rgba(10,20,27,.94) 58%),rgba(12,20,27,.9); }
+.market-card.rarity-uncommon::after { background:radial-gradient(circle,rgba(205,169,106,.16),transparent 64%); }
+.market-card.rarity-rare { border-color:rgba(111,145,158,.72); background:linear-gradient(160deg,rgba(79,112,127,.2),rgba(255,255,255,.016) 42%,rgba(61,81,91,.16)),rgba(12,20,27,.9); }
+.market-card.rarity-rare::after { background:radial-gradient(circle,rgba(111,145,158,.18),transparent 62%); }
+.market-card.rarity-rare h3 { color:#d7e4e8; }
+.market-card.rarity-uncommon h3 { color:#f4d99b; }
+.market-card.rarity-uncommon .market-rarity-chip { color:#f4d99b; border-color:rgba(205,169,106,.52); background:rgba(126,91,35,.18); }
+.market-card.rarity-rare .market-rarity-chip { color:#d7e4e8; border-color:rgba(111,145,158,.52); background:rgba(61,83,94,.28); }
+.market-link { display:inline-flex; align-items:center; gap:6px; width:fit-content; color:#c5efdb; }
+.market-external-icon { display:inline-grid; place-items:center; width:1.1em; height:1.1em; border:1px solid currentColor; border-radius:2px; font:700 .72em/1 var(--font-mono); }
+@media (max-width:620px) { .market-restock-clock { flex-basis:100%; } .market-adjustment { margin-left:0; } }

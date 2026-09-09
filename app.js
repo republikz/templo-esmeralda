@@ -4255,8 +4255,8 @@ function renderMarket() {
   renderMarketSettings();
   renderMarketCategoryOptions();
   renderMarketStatus();
-  renderMarketSection("permanent", "marketPermanentList", "permanentCountLabel");
-  renderMarketSection("consumable", "marketConsumableList", "consumableCountLabel");
+  renderMarketSection("permanent", "marketPermanentList");
+  renderMarketSection("consumable", "marketConsumableList");
 }
 
 function renderMarketSettings() {
@@ -4290,22 +4290,30 @@ function renderMarketStatus() {
   const due = !getMarketStockTotal() || state.currentDay >= nextDay;
   const permanentTotal = state.market.stock.permanent.length;
   const consumableTotal = state.market.stock.consumable.length;
+  const restockDay = Number(state.market.lastRestockDay) || state.currentDay;
+  const cycleDays = Math.max(1, nextDay - restockDay);
+  const daysRemaining = Math.max(0, nextDay - state.currentDay);
+  const progress = clamp(((state.currentDay - restockDay) / cycleDays) * 100, 0, 100);
   const status = [
     `<span class="chip ${catalogLoaded ? "income" : "warn"}">${catalogLoaded ? `${catalog.length} itens no catálogo` : "Catálogo pendente"}</span>`,
     `<span class="chip">Estoque de ${formatCalendarDate(state.market.lastRestockDay || state.currentDay)}</span>`,
-    `<span class="chip ${due ? "warn" : ""}">Próxima troca em ${formatCalendarDate(nextDay)}</span>`,
     `<span class="chip premium">Permanentes: ${permanentTotal}</span>`,
-    `<span class="chip income">Consumíveis: ${consumableTotal}</span>`
+    `<span class="chip income">Consumíveis: ${consumableTotal}</span>`,
+    `<div class="market-restock-clock ${due ? "is-due" : ""}">
+      <div class="market-restock-clock-head"><span>Próxima troca</span><strong>${due ? "Disponível agora" : `${daysRemaining} dia${daysRemaining === 1 ? "" : "s"} restante${daysRemaining === 1 ? "" : "s"}`}</strong></div>
+      <div class="market-restock-track" role="progressbar" aria-label="Progresso até a próxima troca de estoque" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(progress)}"><span style="--market-restock-progress:${progress}%"></span></div>
+      <small>Renova em ${formatCalendarDate(nextDay)}</small>
+    </div>`
   ];
   setHtmlIfChanged($("#marketStatus"), status.join(""));
 }
 
-function renderMarketSection(section, listId, labelId) {
+function renderMarketSection(section, listId) {
   const container = $(`#${listId}`);
   if (!container) {
     return;
   }
-  const key = getCacheKey(domainRevision("market"), section, $("#marketSearch")?.value || "", $("#marketRarityFilter")?.value || "all", $("#marketCategoryFilter")?.value || "all", $("#marketSort")?.value || "level", isAdmin());
+  const key = getCacheKey(domainRevision("market"), section, $("#marketSearch")?.value || "", $("#marketRarityFilter")?.value || "all", $("#marketCategoryFilter")?.value || "all", $("#marketSort")?.value || "level", isAdmin(), catalogLoaded, catalog.length);
   const cache = renderCache.marketSectionHtml[section];
   const result = getCachedValue(cache, key, () => {
     const stock = getFilteredMarketStock(section);
@@ -4316,10 +4324,6 @@ function renderMarketSection(section, listId, labelId) {
         : renderEmpty("Mercado vazio", catalogLoaded ? "Gere o estoque dos mercadores." : "O catálogo local ainda não foi carregado.")
     };
   });
-  const label = $(`#${labelId}`);
-  if (label) {
-    label.textContent = `${result.count} itens`;
-  }
   const html = result.html;
   setHtmlIfChanged(container, html);
 }
@@ -4351,14 +4355,25 @@ function getFilteredMarketStock(section) {
     });
 }
 
+function getMarketArchiveUrl(item) {
+  if (item.url) return item.url;
+  const sameNameAndLevel = catalog.filter((entry) => entry.name === item.name && entry.level === item.level && entry.url);
+  if (!sameNameAndLevel.length) return "";
+  return sameNameAndLevel.find((entry) => entry.category === item.category && entry.trait === item.trait)?.url
+    || sameNameAndLevel.find((entry) => entry.category === item.category)?.url
+    || sameNameAndLevel[0].url;
+}
+
 function renderMarketCard(item, section) {
   const adjustmentLabel = item.stockType === "premium"
     ? "Sobrepreço +10%"
     : `Desconto ${Math.abs(item.adjustmentPercent)}%`;
+  const adjustmentClass = item.stockType === "premium" ? "is-premium" : "is-discount";
   const rarityClass = `rarity-${String(item.rarity || "").toLowerCase()}`;
   const sectionClass = section === "consumable" ? "section-consumable" : "section-permanent";
   const sectionLabel = section === "consumable" ? "Consumível" : "Permanente";
   const icon = getDashboardMarketIcon(item);
+  const archiveUrl = getMarketArchiveUrl(item);
   return `
     <article class="market-card ${rarityClass} ${sectionClass}">
       <header class="market-card-head">
@@ -4376,11 +4391,12 @@ function renderMarketCard(item, section) {
           <span class="chip">${sectionLabel}</span>
           <span class="chip ${item.stockType === "premium" ? "expense" : "warn"}">${adjustmentLabel}</span>
       </div>
-      <div class="price-line">
-        <span>Normal: ${formatCopper(item.normalCopper)}</span>
-        <strong>${formatCopper(item.merchantCopper)}</strong>
+      <div class="market-price-tag">
+        <span class="market-price-original">Normal <s>${formatCopper(item.normalCopper)}</s></span>
+        <strong class="market-price-final">${formatCopper(item.merchantCopper)}</strong>
+        <span class="market-adjustment ${adjustmentClass}">${adjustmentLabel}</span>
       </div>
-      ${item.url ? `<a class="market-link" href="${escapeAttr(item.url)}" target="_blank" rel="noreferrer">Ver no Archives of Nethys</a>` : ""}
+      ${archiveUrl ? `<a class="market-link" href="${escapeAttr(archiveUrl)}" target="_blank" rel="noreferrer">Ver no Archives of Nethys <span class="market-external-icon" aria-hidden="true">↗</span></a>` : ""}
     </article>
   `;
 }
