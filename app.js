@@ -6489,7 +6489,7 @@ function getInvestigationBoard() {
 function getInvestigationNoteEstimatedSize(note) {
   return {
     width: 220,
-    height: Math.max(166, 128 + Math.ceil(String(note?.text || "").length / 48) * 18)
+    height: Math.max(166, 128 + Math.ceil(String(note?.text || "").length / 48) * 18 + (note?.journeyEntryId ? 104 : 0))
   };
 }
 
@@ -6586,6 +6586,7 @@ function renderCampfireInvestigation() {
     investigationConnectMode,
     investigationConnectFromId,
     board.notes.map((note) => `${note.id}:${note.x}:${note.y}:${note.updatedAt}:${note.contentUpdatedAt}:${note.positionUpdatedAt}:${note.journeyEntryId}:${String(note.title || "").length}:${String(note.text || "").length}`).join(","),
+    state.journey.entries.map((entry) => `${entry.id}:${entry.updatedAt || ""}:${entry.title}:${String(entry.image || "").length}`).join(","),
     `${board.width}x${board.height}`,
     getActiveUserId()
   );
@@ -6598,13 +6599,26 @@ function renderCampfireInvestigation() {
   renderInvestigationModal();
 }
 
+function getInvestigationJourneyEntry(note) {
+  return note?.journeyEntryId ? state.journey.entries.find((entry) => entry.id === note.journeyEntryId) || null : null;
+}
+
+function renderInvestigationLinkedMemory(entry) {
+  if (!entry) return "";
+  const image = entry.image
+    ? '<div class="investigation-note-image" aria-label="Lembrança vinculada"><img src="' + escapeAttr(entry.image) + '" alt="' + escapeAttr(entry.title) + '" loading="lazy" decoding="async"></div>'
+    : "";
+  return image + '<em class="investigation-journey-label">' + escapeHtml(entry.title) + '</em>';
+}
 function renderInvestigationNote(note) {
+  const entry = getInvestigationJourneyEntry(note);
   const author = note.createdByHeroName || note.createdByName || "Mesa";
   const active = selectedInvestigationNoteId === note.id ? "active" : "";
   const connecting = investigationConnectFromId === note.id ? "connecting" : "";
   return `
     <article class="investigation-note note-${escapeAttr(note.color)} ${active} ${connecting}" data-note-id="${escapeAttr(note.id)}" style="left:${Math.round(note.x)}px; top:${Math.round(note.y)}px">
       <div class="investigation-pin" aria-hidden="true"></div>
+      ${renderInvestigationLinkedMemory(entry)}
       <div class="investigation-note-main">
         <strong>${escapeHtml(note.title)}</strong>
         <span>${note.text ? escapeHtml(note.text) : "Sem descrição."}</span>
@@ -6697,6 +6711,13 @@ function renderInvestigationModal() {
     setHtmlIfChanged(content, "");
     return;
   }
+  const journeyOptions = [
+    '<option value="">Sem vínculo com a Jornada</option>',
+    ...state.journey.entries
+      .slice()
+      .sort((a, b) => a.title.localeCompare(b.title, "pt-BR"))
+      .map((entry) => '<option value="' + escapeAttr(entry.id) + '"' + (entry.id === note.journeyEntryId ? ' selected' : '') + '>' + escapeHtml(entry.title) + (entry.level ? ' · Nível ' + escapeHtml(entry.level) : '') + '</option>')
+  ].join("");
   const linkList = board.links
     .filter((link) => link.fromNoteId === note.id || link.toNoteId === note.id)
     .map((link) => {
@@ -6749,6 +6770,10 @@ function renderInvestigationModal() {
           </select>
         </label>
       </div>
+      <label>
+        Lembrança da Jornada
+        <select name="journeyEntryId">${journeyOptions}</select>
+      </label>
       <label>
         Texto da nota
         <textarea name="text" rows="5" maxlength="600">${escapeHtml(note.text || "")}</textarea>
@@ -6946,6 +6971,7 @@ function saveInvestigationNote(event) {
   note.title = title;
   note.text = event.target.elements.text?.value.trim() || "";
   note.color = event.target.elements.color?.value || "gold";
+  note.journeyEntryId = event.target.elements.journeyEntryId?.value || "";
   note.contentUpdatedAt = Date.now();
   note.updatedAt = Math.max(Number(note.contentUpdatedAt) || 0, Number(note.positionUpdatedAt) || 0, Date.now());
   selectedInvestigationNoteId = "";
