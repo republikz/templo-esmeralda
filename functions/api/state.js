@@ -243,17 +243,34 @@ function retainJourneyEntries(currentEntries, incomingEntries, contentChangedIds
 function mergeInvestigationFields(current, incoming, fields) {
   if (!current) return incoming;
   const next = { ...current };
+  const currentContentTime = Number(current.contentUpdatedAt) || recordTime(current);
+  const incomingContentTime = Number(incoming.contentUpdatedAt) || recordTime(incoming);
+  const currentPositionTime = Number(current.positionUpdatedAt) || recordTime(current);
+  const incomingPositionTime = Number(incoming.positionUpdatedAt) || recordTime(incoming);
+  const contentFields = ["title", "text", "color", "journeyEntryId"];
+  const positionFields = ["x", "y"];
   if (Array.isArray(fields)) {
-    for (const field of ["title", "text", "color", "x", "y"]) {
-      if (fields.includes(field) && Object.hasOwn(incoming, field)) next[field] = incoming[field];
+    if (incomingContentTime >= currentContentTime) {
+      for (const field of contentFields) {
+        if (fields.includes(field) && Object.hasOwn(incoming, field)) next[field] = incoming[field];
+      }
+    }
+    if (incomingPositionTime >= currentPositionTime) {
+      for (const field of positionFields) {
+        if (fields.includes(field) && Object.hasOwn(incoming, field)) next[field] = incoming[field];
+      }
     }
   } else {
-    // Compatibility for older clients: never promote an older position to "now".
-    if (Number(incoming.positionUpdatedAt) > Number(current.positionUpdatedAt)) {
-      next.x = incoming.x; next.y = incoming.y;
+    // Compatibility for older clients: merge only fields they sent and prefer newer edits.
+    if (incomingPositionTime > currentPositionTime) {
+      for (const field of positionFields) {
+        if (Object.hasOwn(incoming, field)) next[field] = incoming[field];
+      }
     }
-    if (Number(incoming.contentUpdatedAt) > Number(current.contentUpdatedAt)) {
-      for (const field of ["title", "text", "color"]) next[field] = incoming[field];
+    if (incomingContentTime > currentContentTime) {
+      for (const field of contentFields) {
+        if (Object.hasOwn(incoming, field)) next[field] = incoming[field];
+      }
     }
   }
   return next;

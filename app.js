@@ -1830,7 +1830,7 @@ function getInvestigationFieldChanges(notes = [], baseline = []) {
   const previous = new Map(baseline.map(note => [note.id, note]));
   return Object.fromEntries(notes.map(note => {
     const old = previous.get(note.id);
-    return [note.id, ["title", "text", "color", "x", "y"].filter(field => !old || note[field] !== old[field])];
+    return [note.id, ["title", "text", "color", "journeyEntryId", "x", "y"].filter(field => !old || note[field] !== old[field])];
   }).filter(([, fields]) => fields.length));
 }
 
